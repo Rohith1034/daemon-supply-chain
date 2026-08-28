@@ -1,0 +1,1426 @@
+[
+  {
+    "warehouse_id": "WH-00001",
+    "warehouse_code": "LAX-FC-01",
+    "warehouse_name": "Los Angeles Fulfillment Center",
+    "warehouse_type": "FULFILLMENT_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "California",
+      "state_code": "CA",
+      "city": "Los Angeles",
+      "postal_code": "90045",
+      "latitude": 33.9416,
+      "longitude": -118.4085,
+      "timezone": "America/Los_Angeles"
+    },
+    "facility": {
+      "total_area_sqft": 850000,
+      "storage_capacity_units": 2500000,
+      "dock_doors": 48,
+      "receiving_docks": 24,
+      "shipping_docks": 24,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold"],
+      "temperature_controlled": true,
+      "temperature_min_c": 15,
+      "temperature_max_c": 25,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2C", "B2B"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "HIGH",
+      "conveyor_system": true,
+      "automated_storage": true,
+      "robotics_enabled": true,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 180000,
+      "average_dock_to_stock_hours": 4.5,
+      "inventory_accuracy_percent": 99.3,
+      "on_time_processing_percent": 98.2
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00002",
+    "warehouse_code": "DAL-DC-01",
+    "warehouse_name": "Dallas Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Texas",
+      "state_code": "TX",
+      "city": "Dallas",
+      "postal_code": "75261",
+      "latitude": 32.8998,
+      "longitude": -97.0403,
+      "timezone": "America/Chicago"
+    },
+    "facility": {
+      "total_area_sqft": 950000,
+      "storage_capacity_units": 3200000,
+      "dock_doors": 60,
+      "receiving_docks": 30,
+      "shipping_docks": 30,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold", "Hazmat"],
+      "temperature_controlled": true,
+      "temperature_min_c": 2,
+      "temperature_max_c": 25,
+      "hazmat_certified": true,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2B", "B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "HIGH",
+      "conveyor_system": true,
+      "automated_storage": true,
+      "robotics_enabled": true,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 220000,
+      "average_dock_to_stock_hours": 4.2,
+      "inventory_accuracy_percent": 99.5,
+      "on_time_processing_percent": 98.8
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00003",
+    "warehouse_code": "CHI-FC-01",
+    "warehouse_name": "Chicago Fulfillment Center",
+    "warehouse_type": "FULFILLMENT_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Illinois",
+      "state_code": "IL",
+      "city": "Chicago",
+      "postal_code": "60638",
+      "latitude": 41.8781,
+      "longitude": -87.6298,
+      "timezone": "America/Chicago"
+    },
+    "facility": {
+      "total_area_sqft": 780000,
+      "storage_capacity_units": 2300000,
+      "dock_doors": 44,
+      "receiving_docks": 22,
+      "shipping_docks": 22,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold"],
+      "temperature_controlled": true,
+      "temperature_min_c": 10,
+      "temperature_max_c": 25,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "HIGH",
+      "conveyor_system": true,
+      "automated_storage": true,
+      "robotics_enabled": true,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 165000,
+      "average_dock_to_stock_hours": 5.1,
+      "inventory_accuracy_percent": 99.1,
+      "on_time_processing_percent": 97.9
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00004",
+    "warehouse_code": "ATL-DC-01",
+    "warehouse_name": "Atlanta Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Georgia",
+      "state_code": "GA",
+      "city": "Atlanta",
+      "postal_code": "30354",
+      "latitude": 33.6407,
+      "longitude": -84.4277,
+      "timezone": "America/New_York"
+    },
+    "facility": {
+      "total_area_sqft": 720000,
+      "storage_capacity_units": 2100000,
+      "dock_doors": 42,
+      "receiving_docks": 21,
+      "shipping_docks": 21,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold"],
+      "temperature_controlled": true,
+      "temperature_min_c": 8,
+      "temperature_max_c": 25,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2B", "B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "MEDIUM",
+      "conveyor_system": true,
+      "automated_storage": false,
+      "robotics_enabled": false,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 140000,
+      "average_dock_to_stock_hours": 5.5,
+      "inventory_accuracy_percent": 98.9,
+      "on_time_processing_percent": 97.4
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00005",
+    "warehouse_code": "PHX-FC-01",
+    "warehouse_name": "Phoenix Fulfillment Center",
+    "warehouse_type": "FULFILLMENT_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Arizona",
+      "state_code": "AZ",
+      "city": "Phoenix",
+      "postal_code": "85034",
+      "latitude": 33.4484,
+      "longitude": -112.074,
+      "timezone": "America/Phoenix"
+    },
+    "facility": {
+      "total_area_sqft": 650000,
+      "storage_capacity_units": 1900000,
+      "dock_doors": 36,
+      "receiving_docks": 18,
+      "shipping_docks": 18,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal"],
+      "temperature_controlled": true,
+      "temperature_min_c": 18,
+      "temperature_max_c": 24,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": false
+    },
+    "operations": {
+      "fulfillment_types": ["B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "HIGH",
+      "conveyor_system": true,
+      "automated_storage": true,
+      "robotics_enabled": true,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 150000,
+      "average_dock_to_stock_hours": 4.7,
+      "inventory_accuracy_percent": 99.4,
+      "on_time_processing_percent": 98.6
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00006",
+    "warehouse_code": "DFW-DC-01",
+    "warehouse_name": "Fort Worth Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Texas",
+      "state_code": "TX",
+      "city": "Fort Worth",
+      "postal_code": "76177",
+      "latitude": 32.9399,
+      "longitude": -97.2877,
+      "timezone": "America/Chicago"
+    },
+    "facility": {
+      "total_area_sqft": 880000,
+      "storage_capacity_units": 3000000,
+      "dock_doors": 56,
+      "receiving_docks": 28,
+      "shipping_docks": 28,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold", "Hazmat"],
+      "temperature_controlled": true,
+      "temperature_min_c": 2,
+      "temperature_max_c": 25,
+      "hazmat_certified": true,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2B", "B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "HIGH",
+      "conveyor_system": true,
+      "automated_storage": true,
+      "robotics_enabled": true,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 200000,
+      "average_dock_to_stock_hours": 4.0,
+      "inventory_accuracy_percent": 99.6,
+      "on_time_processing_percent": 98.9
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00007",
+    "warehouse_code": "SEA-DC-01",
+    "warehouse_name": "Seattle Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Washington",
+      "state_code": "WA",
+      "city": "Seattle",
+      "postal_code": "98168",
+      "latitude": 47.6062,
+      "longitude": -122.3321,
+      "timezone": "America/Los_Angeles"
+    },
+    "facility": {
+      "total_area_sqft": 560000,
+      "storage_capacity_units": 1500000,
+      "dock_doors": 32,
+      "receiving_docks": 16,
+      "shipping_docks": 16,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold"],
+      "temperature_controlled": true,
+      "temperature_min_c": 8,
+      "temperature_max_c": 25,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": false,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "MEDIUM",
+      "conveyor_system": true,
+      "automated_storage": false,
+      "robotics_enabled": false,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 110000,
+      "average_dock_to_stock_hours": 6.2,
+      "inventory_accuracy_percent": 98.8,
+      "on_time_processing_percent": 97.1
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00008",
+    "warehouse_code": "EWR-FC-01",
+    "warehouse_name": "Newark Fulfillment Center",
+    "warehouse_type": "FULFILLMENT_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "New Jersey",
+      "state_code": "NJ",
+      "city": "Newark",
+      "postal_code": "07114",
+      "latitude": 40.7357,
+      "longitude": -74.1724,
+      "timezone": "America/New_York"
+    },
+    "facility": {
+      "total_area_sqft": 820000,
+      "storage_capacity_units": 2700000,
+      "dock_doors": 50,
+      "receiving_docks": 25,
+      "shipping_docks": 25,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold", "Hazmat"],
+      "temperature_controlled": true,
+      "temperature_min_c": 2,
+      "temperature_max_c": 25,
+      "hazmat_certified": true,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2C", "B2B"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "HIGH",
+      "conveyor_system": true,
+      "automated_storage": true,
+      "robotics_enabled": true,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 190000,
+      "average_dock_to_stock_hours": 4.3,
+      "inventory_accuracy_percent": 99.4,
+      "on_time_processing_percent": 98.5
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00009",
+    "warehouse_code": "MEM-DC-01",
+    "warehouse_name": "Memphis Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Tennessee",
+      "state_code": "TN",
+      "city": "Memphis",
+      "postal_code": "38118",
+      "latitude": 35.1495,
+      "longitude": -90.049,
+      "timezone": "America/Chicago"
+    },
+    "facility": {
+      "total_area_sqft": 700000,
+      "storage_capacity_units": 2200000,
+      "dock_doors": 46,
+      "receiving_docks": 23,
+      "shipping_docks": 23,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold", "Hazmat"],
+      "temperature_controlled": true,
+      "temperature_min_c": 2,
+      "temperature_max_c": 25,
+      "hazmat_certified": true,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2B", "B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "HIGH",
+      "conveyor_system": true,
+      "automated_storage": true,
+      "robotics_enabled": false,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 175000,
+      "average_dock_to_stock_hours": 4.8,
+      "inventory_accuracy_percent": 99.2,
+      "on_time_processing_percent": 98.0
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00010",
+    "warehouse_code": "DEN-DC-01",
+    "warehouse_name": "Denver Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Colorado",
+      "state_code": "CO",
+      "city": "Denver",
+      "postal_code": "80239",
+      "latitude": 39.7392,
+      "longitude": -104.9903,
+      "timezone": "America/Denver"
+    },
+    "facility": {
+      "total_area_sqft": 520000,
+      "storage_capacity_units": 1400000,
+      "dock_doors": 30,
+      "receiving_docks": 15,
+      "shipping_docks": 15,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold"],
+      "temperature_controlled": true,
+      "temperature_min_c": 5,
+      "temperature_max_c": 25,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2B"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": false,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "MEDIUM",
+      "conveyor_system": true,
+      "automated_storage": false,
+      "robotics_enabled": false,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 95000,
+      "average_dock_to_stock_hours": 6.0,
+      "inventory_accuracy_percent": 98.7,
+      "on_time_processing_percent": 96.9
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00011",
+    "warehouse_code": "MIA-DC-01",
+    "warehouse_name": "Miami Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Florida",
+      "state_code": "FL",
+      "city": "Miami",
+      "postal_code": "33166",
+      "latitude": 25.7617,
+      "longitude": -80.1918,
+      "timezone": "America/New_York"
+    },
+    "facility": {
+      "total_area_sqft": 610000,
+      "storage_capacity_units": 1800000,
+      "dock_doors": 38,
+      "receiving_docks": 19,
+      "shipping_docks": 19,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold"],
+      "temperature_controlled": true,
+      "temperature_min_c": 2,
+      "temperature_max_c": 25,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2C", "B2B"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "MEDIUM",
+      "conveyor_system": true,
+      "automated_storage": false,
+      "robotics_enabled": false,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 125000,
+      "average_dock_to_stock_hours": 5.8,
+      "inventory_accuracy_percent": 98.9,
+      "on_time_processing_percent": 97.7
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00012",
+    "warehouse_code": "JAX-DC-01",
+    "warehouse_name": "Jacksonville Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Florida",
+      "state_code": "FL",
+      "city": "Jacksonville",
+      "postal_code": "32218",
+      "latitude": 30.3322,
+      "longitude": -81.6557,
+      "timezone": "America/New_York"
+    },
+    "facility": {
+      "total_area_sqft": 680000,
+      "storage_capacity_units": 2000000,
+      "dock_doors": 40,
+      "receiving_docks": 20,
+      "shipping_docks": 20,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold", "Hazmat"],
+      "temperature_controlled": true,
+      "temperature_min_c": 3,
+      "temperature_max_c": 25,
+      "hazmat_certified": true,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2B", "B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "HIGH",
+      "conveyor_system": true,
+      "automated_storage": true,
+      "robotics_enabled": true,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 135000,
+      "average_dock_to_stock_hours": 5.0,
+      "inventory_accuracy_percent": 99.1,
+      "on_time_processing_percent": 98.1
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00013",
+    "warehouse_code": "PDX-DC-01",
+    "warehouse_name": "Portland Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Oregon",
+      "state_code": "OR",
+      "city": "Portland",
+      "postal_code": "97218",
+      "latitude": 45.5152,
+      "longitude": -122.6784,
+      "timezone": "America/Los_Angeles"
+    },
+    "facility": {
+      "total_area_sqft": 500000,
+      "storage_capacity_units": 1300000,
+      "dock_doors": 28,
+      "receiving_docks": 14,
+      "shipping_docks": 14,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold"],
+      "temperature_controlled": true,
+      "temperature_min_c": 10,
+      "temperature_max_c": 25,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": false,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "MEDIUM",
+      "conveyor_system": true,
+      "automated_storage": false,
+      "robotics_enabled": false,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 90000,
+      "average_dock_to_stock_hours": 6.3,
+      "inventory_accuracy_percent": 98.6,
+      "on_time_processing_percent": 96.8
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00014",
+    "warehouse_code": "MSP-DC-01",
+    "warehouse_name": "Minneapolis Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Minnesota",
+      "state_code": "MN",
+      "city": "Minneapolis",
+      "postal_code": "55450",
+      "latitude": 44.9778,
+      "longitude": -93.265,
+      "timezone": "America/Chicago"
+    },
+    "facility": {
+      "total_area_sqft": 540000,
+      "storage_capacity_units": 1500000,
+      "dock_doors": 30,
+      "receiving_docks": 15,
+      "shipping_docks": 15,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold"],
+      "temperature_controlled": true,
+      "temperature_min_c": 2,
+      "temperature_max_c": 25,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2B", "B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": false,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "MEDIUM",
+      "conveyor_system": true,
+      "automated_storage": false,
+      "robotics_enabled": false,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 100000,
+      "average_dock_to_stock_hours": 6.1,
+      "inventory_accuracy_percent": 98.8,
+      "on_time_processing_percent": 97.2
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00015",
+    "warehouse_code": "BNA-FC-01",
+    "warehouse_name": "Nashville Fulfillment Center",
+    "warehouse_type": "FULFILLMENT_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Tennessee",
+      "state_code": "TN",
+      "city": "Nashville",
+      "postal_code": "37217",
+      "latitude": 36.1627,
+      "longitude": -86.7816,
+      "timezone": "America/Chicago"
+    },
+    "facility": {
+      "total_area_sqft": 620000,
+      "storage_capacity_units": 1750000,
+      "dock_doors": 34,
+      "receiving_docks": 17,
+      "shipping_docks": 17,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold"],
+      "temperature_controlled": true,
+      "temperature_min_c": 8,
+      "temperature_max_c": 25,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "HIGH",
+      "conveyor_system": true,
+      "automated_storage": true,
+      "robotics_enabled": true,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 145000,
+      "average_dock_to_stock_hours": 4.9,
+      "inventory_accuracy_percent": 99.2,
+      "on_time_processing_percent": 98.0
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00016",
+    "warehouse_code": "CLT-DC-01",
+    "warehouse_name": "Charlotte Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "North Carolina",
+      "state_code": "NC",
+      "city": "Charlotte",
+      "postal_code": "28208",
+      "latitude": 35.2271,
+      "longitude": -80.8431,
+      "timezone": "America/New_York"
+    },
+    "facility": {
+      "total_area_sqft": 575000,
+      "storage_capacity_units": 1600000,
+      "dock_doors": 34,
+      "receiving_docks": 17,
+      "shipping_docks": 17,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold"],
+      "temperature_controlled": true,
+      "temperature_min_c": 8,
+      "temperature_max_c": 25,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2B", "B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "MEDIUM",
+      "conveyor_system": true,
+      "automated_storage": false,
+      "robotics_enabled": false,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 120000,
+      "average_dock_to_stock_hours": 5.7,
+      "inventory_accuracy_percent": 98.9,
+      "on_time_processing_percent": 97.6
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00017",
+    "warehouse_code": "BOS-FC-01",
+    "warehouse_name": "Boston Fulfillment Center",
+    "warehouse_type": "FULFILLMENT_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Massachusetts",
+      "state_code": "MA",
+      "city": "Boston",
+      "postal_code": "02128",
+      "latitude": 42.3601,
+      "longitude": -71.0589,
+      "timezone": "America/New_York"
+    },
+    "facility": {
+      "total_area_sqft": 600000,
+      "storage_capacity_units": 1650000,
+      "dock_doors": 36,
+      "receiving_docks": 18,
+      "shipping_docks": 18,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold"],
+      "temperature_controlled": true,
+      "temperature_min_c": 5,
+      "temperature_max_c": 25,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "HIGH",
+      "conveyor_system": true,
+      "automated_storage": true,
+      "robotics_enabled": true,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 135000,
+      "average_dock_to_stock_hours": 4.8,
+      "inventory_accuracy_percent": 99.3,
+      "on_time_processing_percent": 98.3
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00018",
+    "warehouse_code": "PHL-DC-01",
+    "warehouse_name": "Philadelphia Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Pennsylvania",
+      "state_code": "PA",
+      "city": "Philadelphia",
+      "postal_code": "19153",
+      "latitude": 39.9526,
+      "longitude": -75.1652,
+      "timezone": "America/New_York"
+    },
+    "facility": {
+      "total_area_sqft": 670000,
+      "storage_capacity_units": 2000000,
+      "dock_doors": 42,
+      "receiving_docks": 21,
+      "shipping_docks": 21,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold", "Hazmat"],
+      "temperature_controlled": true,
+      "temperature_min_c": 2,
+      "temperature_max_c": 25,
+      "hazmat_certified": true,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2B", "B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "HIGH",
+      "conveyor_system": true,
+      "automated_storage": true,
+      "robotics_enabled": true,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 155000,
+      "average_dock_to_stock_hours": 4.6,
+      "inventory_accuracy_percent": 99.2,
+      "on_time_processing_percent": 98.1
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00019",
+    "warehouse_code": "SLC-DC-01",
+    "warehouse_name": "Salt Lake City Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Utah",
+      "state_code": "UT",
+      "city": "Salt Lake City",
+      "postal_code": "84116",
+      "latitude": 40.7608,
+      "longitude": -111.891,
+      "timezone": "America/Denver"
+    },
+    "facility": {
+      "total_area_sqft": 480000,
+      "storage_capacity_units": 1250000,
+      "dock_doors": 28,
+      "receiving_docks": 14,
+      "shipping_docks": 14,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal"],
+      "temperature_controlled": false,
+      "temperature_min_c": null,
+      "temperature_max_c": null,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": false
+    },
+    "operations": {
+      "fulfillment_types": ["B2B"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": false,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "MEDIUM",
+      "conveyor_system": true,
+      "automated_storage": false,
+      "robotics_enabled": false,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 85000,
+      "average_dock_to_stock_hours": 6.4,
+      "inventory_accuracy_percent": 98.5,
+      "on_time_processing_percent": 96.7
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00020",
+    "warehouse_code": "STL-DC-01",
+    "warehouse_name": "St Louis Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Missouri",
+      "state_code": "MO",
+      "city": "St. Louis",
+      "postal_code": "63134",
+      "latitude": 38.627,
+      "longitude": -90.1994,
+      "timezone": "America/Chicago"
+    },
+    "facility": {
+      "total_area_sqft": 530000,
+      "storage_capacity_units": 1450000,
+      "dock_doors": 30,
+      "receiving_docks": 15,
+      "shipping_docks": 15,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold"],
+      "temperature_controlled": true,
+      "temperature_min_c": 5,
+      "temperature_max_c": 25,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2B", "B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "MEDIUM",
+      "conveyor_system": true,
+      "automated_storage": false,
+      "robotics_enabled": false,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 100000,
+      "average_dock_to_stock_hours": 5.9,
+      "inventory_accuracy_percent": 98.7,
+      "on_time_processing_percent": 97.3
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00021",
+    "warehouse_code": "IND-DC-01",
+    "warehouse_name": "Indianapolis Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Indiana",
+      "state_code": "IN",
+      "city": "Indianapolis",
+      "postal_code": "46241",
+      "latitude": 39.7684,
+      "longitude": -86.1581,
+      "timezone": "America/Indiana/Indianapolis"
+    },
+    "facility": {
+      "total_area_sqft": 590000,
+      "storage_capacity_units": 1700000,
+      "dock_doors": 34,
+      "receiving_docks": 17,
+      "shipping_docks": 17,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold"],
+      "temperature_controlled": true,
+      "temperature_min_c": 5,
+      "temperature_max_c": 25,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2B", "B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "HIGH",
+      "conveyor_system": true,
+      "automated_storage": true,
+      "robotics_enabled": true,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 130000,
+      "average_dock_to_stock_hours": 4.9,
+      "inventory_accuracy_percent": 99.1,
+      "on_time_processing_percent": 97.9
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00022",
+    "warehouse_code": "RDU-DC-01",
+    "warehouse_name": "Raleigh Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "North Carolina",
+      "state_code": "NC",
+      "city": "Raleigh",
+      "postal_code": "27617",
+      "latitude": 35.7796,
+      "longitude": -78.6382,
+      "timezone": "America/New_York"
+    },
+    "facility": {
+      "total_area_sqft": 510000,
+      "storage_capacity_units": 1350000,
+      "dock_doors": 28,
+      "receiving_docks": 14,
+      "shipping_docks": 14,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold"],
+      "temperature_controlled": true,
+      "temperature_min_c": 8,
+      "temperature_max_c": 25,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2B"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": false,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "MEDIUM",
+      "conveyor_system": true,
+      "automated_storage": false,
+      "robotics_enabled": false,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 92000,
+      "average_dock_to_stock_hours": 6.2,
+      "inventory_accuracy_percent": 98.6,
+      "on_time_processing_percent": 97.0
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00023",
+    "warehouse_code": "LAS-DC-01",
+    "warehouse_name": "Las Vegas Distribution Center",
+    "warehouse_type": "FULFILLMENT_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "Nevada",
+      "state_code": "NV",
+      "city": "Las Vegas",
+      "postal_code": "89115",
+      "latitude": 36.1699,
+      "longitude": -115.1398,
+      "timezone": "America/Los_Angeles"
+    },
+    "facility": {
+      "total_area_sqft": 560000,
+      "storage_capacity_units": 1550000,
+      "dock_doors": 32,
+      "receiving_docks": 16,
+      "shipping_docks": 16,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal"],
+      "temperature_controlled": true,
+      "temperature_min_c": 18,
+      "temperature_max_c": 24,
+      "hazmat_certified": false,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": false
+    },
+    "operations": {
+      "fulfillment_types": ["B2C"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "HIGH",
+      "conveyor_system": true,
+      "automated_storage": true,
+      "robotics_enabled": true,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 120000,
+      "average_dock_to_stock_hours": 5.0,
+      "inventory_accuracy_percent": 99.0,
+      "on_time_processing_percent": 97.8
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00024",
+    "warehouse_code": "SJC-DC-01",
+    "warehouse_name": "San Jose Distribution Center",
+    "warehouse_type": "DISTRIBUTION_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "California",
+      "state_code": "CA",
+      "city": "San Jose",
+      "postal_code": "95131",
+      "latitude": 37.3382,
+      "longitude": -121.8863,
+      "timezone": "America/Los_Angeles"
+    },
+    "facility": {
+      "total_area_sqft": 620000,
+      "storage_capacity_units": 1600000,
+      "dock_doors": 36,
+      "receiving_docks": 18,
+      "shipping_docks": 18,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold", "Hazmat"],
+      "temperature_controlled": true,
+      "temperature_min_c": 10,
+      "temperature_max_c": 25,
+      "hazmat_certified": true,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2C", "B2B"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "HIGH",
+      "conveyor_system": true,
+      "automated_storage": true,
+      "robotics_enabled": true,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 150000,
+      "average_dock_to_stock_hours": 4.4,
+      "inventory_accuracy_percent": 99.5,
+      "on_time_processing_percent": 98.7
+    }
+  },
+
+  {
+    "warehouse_id": "WH-00025",
+    "warehouse_code": "NYC-DC-01",
+    "warehouse_name": "New York Distribution Center",
+    "warehouse_type": "FULFILLMENT_CENTER",
+    "status": "ACTIVE",
+    "address": {
+      "country": "USA",
+      "state": "New York",
+      "state_code": "NY",
+      "city": "New York",
+      "postal_code": "11434",
+      "latitude": 40.7128,
+      "longitude": -74.006,
+      "timezone": "America/New_York"
+    },
+    "facility": {
+      "total_area_sqft": 900000,
+      "storage_capacity_units": 2850000,
+      "dock_doors": 54,
+      "receiving_docks": 27,
+      "shipping_docks": 27,
+      "operating_hours": "24x7",
+      "working_shifts": 3
+    },
+    "storage": {
+      "supported_storage_types": ["Normal", "Cold", "Hazmat"],
+      "temperature_controlled": true,
+      "temperature_min_c": 2,
+      "temperature_max_c": 25,
+      "hazmat_certified": true,
+      "fragile_goods_supported": true,
+      "perishable_goods_supported": true
+    },
+    "operations": {
+      "fulfillment_types": ["B2C", "B2B"],
+      "receiving_enabled": true,
+      "putaway_enabled": true,
+      "cross_docking_enabled": true,
+      "returns_processing_enabled": true,
+      "cycle_count_enabled": true
+    },
+    "automation": {
+      "automation_level": "HIGH",
+      "conveyor_system": true,
+      "automated_storage": true,
+      "robotics_enabled": true,
+      "warehouse_management_system": "WMS"
+    },
+    "performance": {
+      "daily_throughput_units": 210000,
+      "average_dock_to_stock_hours": 4.1,
+      "inventory_accuracy_percent": 99.6,
+      "on_time_processing_percent": 98.9
+    }
+  }
+]
