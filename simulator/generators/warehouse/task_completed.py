@@ -1,270 +1,164 @@
-from datetime import datetime, timezone
+from services.warehouse_service import WarehouseService
+from services.inventory_service import InventoryService
+from services.worker_service import WorkerService
+from services.event_service import EventService
+from services.id_service import IDService
 import random
 
-from psycopg2.extras import Json
 
-from simulator.DB import get_connection
-from services.event_service import (
-    generate_event_id,
-    generate_correlation_id
-)
+class TaskCompletedGenerator:
 
 
+    def __init__(self):
 
-def get_started_task(cursor):
+        self.warehouse_service = WarehouseService()
 
-    cursor.execute(
-        """
-        SELECT
-            id,
-            payload
+        self.inventory_service = InventoryService()
 
-        FROM event_outbox
+        self.worker_service = WorkerService()
 
-        WHERE event_type='TaskStarted'
-
-        AND status='PENDING'
-
-        ORDER BY created_at
-
-        LIMIT 1
-
-        FOR UPDATE SKIP LOCKED
-        """
-    )
-
-    return cursor.fetchone()
+        self.event_service = EventService()
 
 
 
-def complete_task():
+    def generate(
+        self,
+        task
+    ):
 
 
-    conn = get_connection()
-    cursor = conn.cursor()
+        task_id = task["task_id"]
 
+        worker_id = task["worker_id"]
 
-    try:
+        product_id = task["product_id"]
 
+        warehouse_id = task["warehouse_id"]
 
-        task = get_started_task(cursor)
-
-
-        if not task:
-
-            print(
-                "No running task found"
-            )
-
-            return
+        quantity = task["quantity"]
 
 
 
-        source_event_id = task[0]
-        payload = task[1]
+        #
+        # Random execution time
+        #
 
-
-        task_id = payload["task_id"]
-
-        worker_id = payload["worker_id"]
-
-
-
-        now = datetime.now(
-            timezone.utc
+        actual_minutes = random.randint(
+            10,
+            60
         )
 
 
 
-        # Simulate labor metrics
+        #
+        # 1.
+        # Complete warehouse task
+        #
 
-        duration_minutes = random.randint(
-            30,
-            180
-        )
+        self.warehouse_service.complete_task(
 
+            task_id,
 
-        quantity_processed = random.randint(
-            200,
-            5000
-        )
+            actual_minutes
 
-
-        accuracy = round(
-            random.uniform(
-                95,
-                100
-            ),
-            2
-        )
-
-
-        damage_count = random.randint(
-            0,
-            5
         )
 
 
 
-        event = {
+        #
+        # 2.
+        # Increase inventory
+        #
 
+        self.inventory_service.increase_inventory(
 
-            "event_id":
-                generate_event_id(),
+            product_id,
 
+            warehouse_id,
 
-            "event_type":
-                "TaskCompleted",
+            quantity
 
-
-            "event_version":
-                "1.0",
-
-
-            "timestamp":
-                now.isoformat(),
-
-
-            "source":
-                "labor-management-system",
-
-
-            "aggregate_type":
-                "WAREHOUSE_TASK",
-
-
-            "aggregate_id":
-                task_id,
-
-
-            "correlation_id":
-                generate_correlation_id(
-                    task_id,
-                    prefix="TASK"
-                ),
+        )
 
 
 
-            "task":{
+        #
+        # 3.
+        # Worker productivity
+        #
+
+        self.worker_service.record_productivity(
+
+            worker_id,
+
+            "PUTAWAY",
+
+            quantity,
+
+            actual_minutes
+
+        )
 
 
-                "task_id":
-                    task_id,
+
+        #
+        # 4.
+        # Correlation ID
+        #
+
+        correlation_id = IDService.generate_correlation_id(
+
+            "TASK",
+
+            task_id
+
+        )
 
 
-                "worker_id":
-                    worker_id,
+
+        #
+        # 5.
+        # Publish event
+        #
+
+        self.event_service.publish_event(
+
+            event_type="TaskCompleted",
+
+            aggregate_type="WAREHOUSE_TASK",
+
+            aggregate_id=task_id,
+
+            correlation_id=correlation_id,
 
 
-                "status":
-                    "COMPLETED",
+            payload={
 
+                "task_id":task_id,
 
-                "completed_at":
-                    now.isoformat()
+                "worker_id":worker_id,
 
-            },
+                "product_id":product_id,
 
+                "warehouse_id":warehouse_id,
 
-            "performance":{
+                "quantity":quantity,
 
-
-                "duration_minutes":
-                    duration_minutes,
-
-
-                "quantity_processed":
-                    quantity_processed,
-
-
-                "accuracy_percent":
-                    accuracy,
-
-
-                "damage_count":
-                    damage_count
+                "status":"COMPLETED"
 
             }
 
-        }
-
-
-
-        cursor.execute(
-
-        """
-        INSERT INTO event_outbox
-        (
-        event_id,
-        event_type,
-        aggregate_type,
-        aggregate_id,
-        correlation_id,
-        payload
-        )
-
-        VALUES
-
-        (%s,%s,%s,%s,%s,%s)
-
-        """,
-
-        (
-
-        event["event_id"],
-
-        event["event_type"],
-
-        "WAREHOUSE_TASK",
-
-        task_id,
-
-        task_id,
-
-        Json(event)
-
-        ))
-
-
-        cursor.execute(
-            """
-            UPDATE event_outbox
-            SET status='PROCESSED'
-            WHERE id=%s
-            """,
-            (source_event_id,)
         )
 
 
+        return {
 
 
-        conn.commit()
+            "event":
+            "TaskCompleted",
 
 
-        print(
-            "Task completed:",
+            "task_id":
             task_id
-        )
 
-
-        return event
-
-
-
-    except Exception as e:
-
-        conn.rollback()
-        raise e
-
-
-
-    finally:
-
-        cursor.close()
-        conn.close()
-
-
-
-if __name__=="__main__":
-
-    complete_task()
+        }

@@ -1,401 +1,162 @@
-from datetime import datetime, timezone
-
-from psycopg2.extras import Json
-
-from simulator.DB import get_connection
-from services.event_service import (
-    generate_event_id,
-    generate_correlation_id
-)
+from services.po_service import POService
+from services.shipment_service import ShipmentService
+from services.event_service import EventService
+from services.id_service import IDService
 
 
 
-# ------------------------------------------
-# Get created shipment
-# ------------------------------------------
-
-def get_created_shipment(cursor):
-
-    cursor.execute(
-        """
-        SELECT
-
-            shipment_id,
-            po_id,
-            supplier_id,
-            warehouse_id
-
-        FROM shipments
-
-
-        WHERE shipment_status='CREATED'
-
-
-        ORDER BY shipment_date
-
-
-        LIMIT 1
-
-        FOR UPDATE
-
-        """
-    )
-
-    return cursor.fetchone()
+class ASNReceivedGenerator:
 
 
 
-# ------------------------------------------
-# Get shipment items
-# ------------------------------------------
+    def __init__(self):
 
-def get_shipment_items(
-    cursor,
-    shipment_id
-):
+        self.po_service = POService()
 
-    cursor.execute(
-        """
-        SELECT
-            product_id,
-            shipped_quantity
-        FROM shipment_items
-        WHERE shipment_id=%s
-        """,
-        (
-            shipment_id,
-        )
-    )
+        self.shipment_service = ShipmentService()
 
-    return cursor.fetchall()
+        self.event_service = EventService()
 
 
 
-# ------------------------------------------
-# ASN Generator
-# ------------------------------------------
-
-def create_asn_received():
-
-
-    conn = get_connection()
-
-    cursor = conn.cursor()
+    def generate(
+        self,
+        po_id
+    ):
 
 
-    try:
+        # 1.
+        # Validate PO
 
 
-        shipment = get_created_shipment(
-            cursor
+        po = (
+            self.po_service
+            .get_purchase_order(
+                po_id
+            )
         )
 
 
-        if not shipment:
 
-            print(
-                "No shipment waiting for ASN"
+        if po["po_status"] != "ACKNOWLEDGED":
+
+            raise Exception(
+                f"""
+                ASN cannot be created.
+
+                PO status:
+                {po["po_status"]}
+
+                Required:
+                ACKNOWLEDGED
+                """
             )
 
-            return
 
 
-
-        shipment_id = shipment[0]
-
-        po_id = shipment[1]
-
-        supplier_id = shipment[2]
-
-        warehouse_id = shipment[3]
+        # 2.
+        # Create shipment
 
 
+        shipment_id = (
 
-        items = get_shipment_items(
-            cursor,
-            shipment_id
+            self.shipment_service
+            .create_shipment_from_po(
+                po
+            )
+
         )
 
 
 
-        now = datetime.now(
-            timezone.utc
-        )
-
+        # 3.
+        # Correlation
 
 
         correlation_id = (
 
-            generate_correlation_id(
-                po_id,
-                prefix="PO"
+            IDService
+            .generate_correlation_id(
+                "PO",
+                po_id
             )
 
         )
 
 
 
-        asn_id = (
-
-            f"ASN-{shipment_id}"
-
-        )
+        # 4.
+        # Payload
 
 
-
-        total_quantity = sum(
-
-            item[1]
-
-            for item in items
-
-        )
+        payload = {
 
 
-
-        event = {
-
-
-            "event_id":
-
-                generate_event_id(),
+            "po_id":
+                po_id,
 
 
-
-            "event_type":
-
-                "ASNReceived",
-
-
-
-            "event_version":
-
-                "1.0",
-
-
-
-            "timestamp":
-
-                now.isoformat(),
-
-
-
-            "source":
-
-                "supplier-integration-service",
-
-
-
-            "aggregate_type":
-
-                "SHIPMENT",
-
-
-
-            "aggregate_id":
-
+            "shipment_id":
                 shipment_id,
 
 
-
-            "correlation_id":
-
-                correlation_id,
+            "supplier_id":
+                po["supplier_id"],
 
 
-
-            "asn":{
-
-
-                "asn_id":
-
-                    asn_id,
+            "warehouse_id":
+                po["warehouse_id"],
 
 
-                "shipment_id":
-
-                    shipment_id,
-
-
-                "po_id":
-
-                    po_id,
-
-
-                "supplier_id":
-
-                    supplier_id,
-
-
-                "warehouse_id":
-
-                    warehouse_id,
-
-
-
-                "items":[
-
-
-                    {
-
-                    "product_id":
-
-                        item[0],
-
-
-                    "quantity":
-
-                        item[1]
-
-                    }
-
-                    for item in items
-
-
-                ],
-
-
-
-                "total_skus":
-
-                    len(items),
-
-
-
-                "total_quantity":
-
-                    total_quantity,
-
-
-
-                "status":
-
-                    "RECEIVED"
-
-            }
+            "shipment_status":
+                "CREATED"
 
         }
 
 
 
-        # --------------------------------
-        # Update shipment
-        # --------------------------------
+        # 5.
+        # Outbox event
 
 
-        cursor.execute(
+        self.event_service.publish_event(
 
-        """
-
-        UPDATE shipments
-
-        SET
-
-        shipment_status='ASN_RECEIVED',
-
-        updated_at=%s
+            event_type=
+                "ASNReceived",
 
 
-        WHERE shipment_id=%s
+            aggregate_type=
+                "SHIPMENT",
 
 
-        """,
+            aggregate_id=
+                shipment_id,
 
-        (
 
-        now,
+            correlation_id=
+                correlation_id,
 
-        shipment_id
 
-        )
+            payload=
+                payload
 
         )
 
 
 
-
-        # --------------------------------
-        # Event Outbox
-        # --------------------------------
+        return {
 
 
-        cursor.execute(
-
-        """
-
-        INSERT INTO event_outbox
-
-        (
-
-        event_id,
-
-        event_type,
-
-        aggregate_type,
-
-        aggregate_id,
-
-        correlation_id,
-
-        payload
-
-        )
+            "event":
+                "ASNReceived",
 
 
-        VALUES
-
-        (%s,%s,%s,%s,%s,%s)
-
-        """,
-
-        (
-
-        event["event_id"],
-
-        event["event_type"],
-
-        "SHIPMENT",
-
-        shipment_id,
-
-        correlation_id,
-
-        Json(event)
-
-        )
-
-        )
+            "shipment_id":
+                shipment_id,
 
 
-        conn.commit()
+            "po_id":
+                po_id
 
 
-        print(
-            "ASN Received:",
-            asn_id
-        )
-
-
-        return event
-
-
-
-    except Exception as e:
-
-        conn.rollback()
-
-        raise e
-
-
-
-    finally:
-
-        cursor.close()
-
-        conn.close()
-
-
-
-if __name__=="__main__":
-
-    create_asn_received()
+        }

@@ -1,45 +1,92 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
+
+from DB import db
 
 
-def generate_event_id():
-
-    return str(uuid.uuid4())
-
-
-
-def generate_correlation_id(
-        aggregate_id,
-        prefix=None
-):
-
+class EventService:
     """
-    Creates business transaction correlation id.
+    Responsible ONLY for writing events into event_outbox.
 
-    Examples:
-
-    PO-000001
-    -> CORR-PO-000001
-
-    ORD-000001
-    -> CORR-ORD-000001
-
-    SHIP-000001
-    -> CORR-SHIP-000001
-
+    It does not know anything about purchase orders,
+    shipments,
+    warehouse,
+    inventory,
+    etc.
     """
 
-    if prefix:
+    def publish_event(
+        self,
+        event_type: str,
+        aggregate_type: str,
+        aggregate_id: str,
+        correlation_id: str,
+        payload: dict,
+    ):
 
-        return f"CORR-{prefix}-{aggregate_id}"
+        sql = """
+        INSERT INTO event_outbox
+        (
+            event_id,
+            event_type,
+            aggregate_type,
+            aggregate_id,
+            correlation_id,
+            payload,
+            status,
+            created_at
+        )
+        VALUES
+        (
+            %s,%s,%s,%s,%s,%s,%s,%s
+        )
+        """
 
+        params = (
+            str(uuid.uuid4()),
+            event_type,
+            aggregate_type,
+            aggregate_id,
+            correlation_id,
+            payload,
+            "PENDING",
+            datetime.utcnow(),
+        )
 
-    return f"CORR-{aggregate_id}"
+        db.insert(sql, params)
 
+    def mark_as_published(self, event_id):
 
+        sql = """
+        UPDATE event_outbox
+        SET
+            status='PUBLISHED',
+            published_at=NOW()
+        WHERE
+            event_id=%s
+        """
 
-def current_timestamp():
+        db.update(sql, (event_id,))
 
-    return datetime.now(
-        timezone.utc
-    ).isoformat()
+    def mark_as_failed(self, event_id):
+
+        sql = """
+        UPDATE event_outbox
+        SET
+            status='FAILED'
+        WHERE
+            event_id=%s
+        """
+
+        db.update(sql, (event_id,))
+
+    def get_pending_events(self):
+
+        sql = """
+        SELECT *
+        FROM event_outbox
+        WHERE status='PENDING'
+        ORDER BY created_at
+        """
+
+        return db.fetch_all(sql)

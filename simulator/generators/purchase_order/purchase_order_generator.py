@@ -1,386 +1,143 @@
-import random
-from datetime import datetime, timezone, timedelta
-
-from psycopg2.extras import execute_values, Json
-
-from simulator.DB import get_connection
-from services.event_service import (
-    generate_event_id,
-    generate_correlation_id
-)
-from services.po_service import generate_po_id
+from services.po_service import POService
+from services.event_service import EventService
+from services.id_service import IDService
 
 
-def get_supplier(cursor):
-    cursor.execute(
-        """
-        SELECT *
-        FROM suppliers
-        ORDER BY random()
-        LIMIT 1
-        """
-    )
+class PurchaseOrderGenerator:
+    """
+    Generates PurchaseOrderCreated event.
 
-    return cursor.fetchone()
+    Responsibilities:
+        1. Create PO using POService
+        2. Create correlation id
+        3. Publish event_outbox record
+    """
 
 
-def get_warehouse(cursor):
-    cursor.execute(
-        """
-        SELECT *
-        FROM warehouses
-        ORDER BY random()
-        LIMIT 1
-        """
-    )
+    def __init__(self):
 
-    return cursor.fetchone()
+        self.po_service = POService()
+
+        self.event_service = EventService()
 
 
-def get_supplier_products(
-        cursor,
-        supplier_id
-):
-    cursor.execute(
-        """
-        SELECT
-            product_id,
-            name,
-            cost_price
 
-        FROM products
+    def generate(self):
 
-        WHERE supplier_id=%s
+        # ---------------------------------
+        # 1. Create Purchase Order
+        # ---------------------------------
 
-        ORDER BY random()
-
-        LIMIT %s
-
-        """,
-        (
-            supplier_id,
-            random.randint(2, 10)
+        purchase_order = (
+            self.po_service
+            .create_purchase_order()
         )
-    )
-
-    return cursor.fetchall()
 
 
-def create_purchase_order():
-    conn = get_connection()
+        po_id = purchase_order["po_id"]
 
-    cursor = conn.cursor()
 
-    try:
 
-        # Generate PO ID
-
-        po_id = generate_po_id(cursor)
+        # ---------------------------------
+        # 2. Create correlation id
+        # ---------------------------------
 
         correlation_id = (
-            generate_correlation_id(
-                po_id,
-                prefix="PO"
+            IDService
+            .generate_correlation_id(
+                "PO",
+                po_id
             )
         )
 
-        supplier = get_supplier(cursor)
 
-        warehouse = get_warehouse(cursor)
 
-        supplier_id = supplier[0]
+        # ---------------------------------
+        # 3. Create Event Payload
+        # ---------------------------------
 
-        warehouse_id = warehouse[0]
+        payload = {
 
-        products = get_supplier_products(
-            cursor,
-            supplier_id
-        )
 
-        items = []
-
-        total_quantity = 0
-
-        total_amount = 0
-
-        for product in products:
-            quantity = random.randint(
-                10,
-                200
-            )
-
-            amount = (
-                    quantity *
-                    float(product[2])
-            )
-
-            total_quantity += quantity
-
-            total_amount += amount
-
-            items.append(
-
-                {
-
-                    "product_id":
-                        product[0],
-
-                    "quantity":
-                        quantity,
-
-                    "unit_cost":
-                        float(product[2]),
-
-                    "total_cost":
-                        amount
-
-                }
-
-            )
-
-        now = datetime.now(
-            timezone.utc
-        )
-
-        # -------------------------
-        # Insert PO
-        # -------------------------
-
-        cursor.execute(
-
-            """
-    
-            INSERT INTO purchase_orders
-    
-            (
-    
-            po_id,
-            supplier_id,
-            warehouse_id,
-            po_status,
-            order_date,
-            expected_delivery,
-            total_items,
-            total_quantity,
-            total_amount,
-            currency
-    
-            )
-    
-            VALUES
-    
-            (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-    
-            """,
-
-            (
-
+            "po_id":
                 po_id,
 
-                supplier_id,
 
-                warehouse_id,
-
-                "CREATED",
-
-                now,
-
-                now + timedelta(
-                    days=7
-                ),
-
-                len(items),
-
-                total_quantity,
-
-                total_amount,
-
-                "USD"
-
-            )
-
-        )
-
-        # -------------------------
-        # Insert PO Items
-        # -------------------------
-
-        item_rows = []
-
-        for item in items:
-            item_rows.append(
-
-                (
-
-                    po_id,
-
-                    item["product_id"],
-
-                    item["quantity"],
-
-                    item["unit_cost"]
-
-                )
-
-            )
-
-        execute_values(
-
-            cursor,
-
-            """
-
-            INSERT INTO purchase_order_items
-
-            (
-
-            po_id,
-            product_id,
-            ordered_quantity,
-            unit_cost
-
-            )
-
-            VALUES %s
+            "supplier_id":
+                purchase_order["supplier_id"],
 
 
-            """,
+            "warehouse_id":
+                purchase_order["warehouse_id"],
 
-            item_rows
 
-        )
+            "status":
+                purchase_order["status"],
 
-        # -------------------------
-        # Create Event
-        # -------------------------
 
-        event = {
+            "total_items":
+                purchase_order["total_items"],
 
-            "event_id":
-                generate_event_id(),
 
-            "event_type":
-                "PurchaseOrderCreated",
+            "total_quantity":
+                purchase_order["total_quantity"],
 
-            "event_version":
-                "1.0",
 
-            "timestamp":
-                now.isoformat(),
+            "total_amount":
+                purchase_order["total_amount"],
 
-            "source":
-                "procurement-simulator",
 
-            "correlation_id":
-                correlation_id,
+            "currency":
+                purchase_order["currency"],
 
-            "aggregate_type":
-                "PURCHASE_ORDER",
 
-            "aggregate_id":
-                po_id,
-
-            "purchase_order":
-
-                {
-
-                    "po_id":
-                        po_id,
-
-                    "supplier_id":
-                        supplier_id,
-
-                    "warehouse_id":
-                        warehouse_id,
-
-                    "items":
-                        items,
-
-                    "total_quantity":
-                        total_quantity,
-
-                    "total_amount":
-                        total_amount,
-
-                    "status":
-                        "CREATED"
-
-                }
+            "items":
+                purchase_order["items"]
 
         }
 
-        # -------------------------
-        # Event Outbox
-        # -------------------------
 
-        cursor.execute(
 
-            """
-    
-            INSERT INTO event_outbox
-    
-            (
-    
-            event_id,
-            event_type,
-            aggregate_type,
-            aggregate_id,
-            correlation_id,
-            payload
-    
-            )
-    
-            VALUES
-    
-            (%s,%s,%s,%s,%s,%s)
-    
-    
-            """,
+        # ---------------------------------
+        # 4. Write Event Outbox
+        # ---------------------------------
 
-            (
+        self.event_service.publish_event(
 
-                event["event_id"],
+            event_type=
+                "PurchaseOrderCreated",
 
-                event["event_type"],
 
+            aggregate_type=
                 "PURCHASE_ORDER",
 
+
+            aggregate_id=
                 po_id,
 
+
+            correlation_id=
                 correlation_id,
 
-                Json(event)
 
-            )
+            payload=
+                payload
 
         )
 
-        conn.commit()
 
-        print(
-            "Created:",
-            po_id
-        )
-
-        return event
+        return {
 
 
-
-    except Exception as e:
-
-        conn.rollback()
-
-        raise e
+            "po_id":
+                po_id,
 
 
-    finally:
-
-        cursor.close()
-
-        conn.close()
+            "event":
+                "PurchaseOrderCreated",
 
 
-print(create_purchase_order())
+            "correlation_id":
+                correlation_id
 
-if __name__ == "__main__":
-    create_purchase_order()
+        }

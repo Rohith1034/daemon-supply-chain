@@ -24,18 +24,23 @@ def check_reorder():
 
         SELECT
 
-        product_id,
-        warehouse_id,
-        available_quantity,
-        reorder_point,
-        reorder_quantity
+        i.product_id,
+        i.warehouse_id,
+        i.available_quantity,
+        i.reorder_point,
+        i.reorder_quantity
 
 
-        FROM inventory
+        FROM inventory i
 
 
-        WHERE available_quantity
-        <= reorder_point
+        WHERE i.available_quantity <= i.reorder_point
+        AND NOT EXISTS (
+            SELECT 1 FROM inventory_reorders
+            WHERE product_id = i.product_id
+            AND warehouse_id = i.warehouse_id
+            AND reorder_status = 'PENDING'
+        )
 
 
         LIMIT 1
@@ -155,7 +160,15 @@ def check_reorder():
 
         ))
 
-
+        # Insert into inventory_reorders to track the reorder
+        cursor.execute(
+            """
+            INSERT INTO inventory_reorders
+            (reorder_id, product_id, warehouse_id, reorder_quantity, reorder_status, created_at)
+            VALUES (%s, %s, %s, %s, 'PENDING', NOW())
+            """,
+            (f"REORD-{product_id}-{warehouse_id}", product_id, warehouse_id, row[4])
+        )
 
         conn.commit()
 

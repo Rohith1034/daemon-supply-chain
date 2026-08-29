@@ -1,12 +1,9 @@
-# DB.py
-import psycopg2
-DB_CONFIG = {
-    "host": "localhost",
-    "port": 55432,
-    "database": "supply_chain",
-    "user": "supplychain_app",
-    "password": "Cr7@1034"
-}
+from services.database_service import DatabaseService
 
-def get_connection():
-    return psycopg2.connect(**DB_CONFIG)
+db = DatabaseService(
+    host="localhost",
+    port=5432,
+    database="supply_chain",
+    user="postgres",
+    password="postgres",
+)

@@ -1,338 +1,126 @@
-from datetime import datetime, timezone
-
-from psycopg2.extras import Json
-
-from simulator.DB import get_connection
-from services.event_service import (
-    generate_event_id,
-    generate_correlation_id
-)
-
-
-def get_po_waiting_supplier_ack(cursor):
-
-
-    cursor.execute(
-
-        """
-
-        SELECT
-
-
-            po_id,
-
-            supplier_id,
-
-            warehouse_id
-
-
-        FROM purchase_orders
-
-
-        WHERE po_status='APPROVED'
-
-
-        ORDER BY order_date
-
-
-        LIMIT 1
-
-
-        """
-
-    )
-
-
-    return cursor.fetchone()
+from services.po_service import POService
+from services.event_service import EventService
+from services.id_service import IDService
 
 
 
-
-def create_purchase_order_acknowledged():
-
-
-    conn = get_connection()
-
-    cursor = conn.cursor()
+class PurchaseOrderAcknowledgedGenerator:
 
 
+    def __init__(self):
 
-    try:
+        self.po_service = POService()
+
+        self.event_service = EventService()
 
 
 
-        po = get_po_waiting_supplier_ack(
-            cursor
-        )
+    def generate(self, po_id):
 
 
+        # 1.
+        # Supplier acknowledges PO
 
-        if not po:
+        result = (
 
-
-            print(
-                "No PO waiting for supplier acknowledgement"
+            self.po_service
+            .acknowledge_purchase_order(
+                po_id
             )
 
-            return
-
-
-
-        po_id = po[0]
-
-        supplier_id = po[1]
-
-        warehouse_id = po[2]
-
-
-
-        now = datetime.now(
-            timezone.utc
         )
 
 
+
+        # 2.
+        # Same correlation chain
 
         correlation_id = (
 
-            generate_correlation_id(
-                po_id,
-                prefix="PO"
+            IDService
+            .generate_correlation_id(
+
+                "PO",
+
+                po_id
+
             )
 
         )
 
 
 
-        supplier_reference = (
-
-            f"SUP-ACK-{po_id}"
-
-        )
+        # 3.
+        # Event payload
 
 
-
-        event = {
-
+        payload = {
 
 
-            "event_id":
-
-                generate_event_id(),
-
-
-
-            "event_type":
-
-                "PurchaseOrderAcknowledged",
-
-
-
-            "event_version":
-
-                "1.0",
-
-
-
-            "timestamp":
-
-                now.isoformat(),
-
-
-
-            "source":
-
-                "supplier-system-simulator",
-
-
-
-            "aggregate_type":
-
-                "PURCHASE_ORDER",
-
-
-
-            "aggregate_id":
-
+            "po_id":
                 po_id,
 
 
-
-            "correlation_id":
-
-                correlation_id,
+            "supplier_id":
+                result["supplier_id"],
 
 
-
-            "purchase_order":{
-
-
-                "po_id":
-
-                    po_id,
+            "warehouse_id":
+                result["warehouse_id"],
 
 
-                "supplier_id":
-
-                    supplier_id,
-
-
-                "warehouse_id":
-
-                    warehouse_id,
+            "previous_status":
+                result["previous_status"],
 
 
-                "supplier_response":{
-
-
-                    "status":
-
-                        "ACCEPTED",
-
-
-                    "supplier_reference":
-
-                        supplier_reference,
-
-
-                    "acknowledged_at":
-
-                        now.isoformat()
-
-                }
-
-            }
-
+            "new_status":
+                result["new_status"]
 
         }
 
 
 
-        # Update PO
+        # 4.
+        # Outbox
 
 
-        cursor.execute(
+        self.event_service.publish_event(
 
-        """
-
-        UPDATE purchase_orders
-
-
-        SET
-
-        po_status='ACKNOWLEDGED',
-
-        updated_at=%s
+            event_type=
+                "PurchaseOrderAcknowledged",
 
 
-        WHERE po_id=%s
+            aggregate_type=
+                "PURCHASE_ORDER",
 
 
-        """,
+            aggregate_id=
+                po_id,
 
-        (
 
-        now,
+            correlation_id=
+                correlation_id,
 
-        po_id
 
-        )
+            payload=
+                payload
 
         )
 
 
 
+        return {
 
 
-        # Save event
+            "event":
+                "PurchaseOrderAcknowledged",
 
 
-        cursor.execute(
-
-        """
-
-        INSERT INTO event_outbox
-
-        (
-
-        event_id,
-
-        event_type,
-
-        aggregate_type,
-
-        aggregate_id,
-
-        correlation_id,
-
-        payload
-
-        )
+            "po_id":
+                po_id,
 
 
-        VALUES
+            "correlation_id":
+                correlation_id
 
-        (%s,%s,%s,%s,%s,%s)
-
-
-        """,
-
-        (
-
-        event["event_id"],
-
-        event["event_type"],
-
-        "PURCHASE_ORDER",
-
-        po_id,
-
-        correlation_id,
-
-        Json(event)
-
-        )
-
-        )
-
-
-
-        conn.commit()
-
-
-
-        print(
-
-            "PO Acknowledged:",
-
-            po_id
-
-        )
-
-
-
-        return event
-
-
-
-    except Exception as e:
-
-
-        conn.rollback()
-
-        raise e
-
-
-
-    finally:
-
-
-        cursor.close()
-
-        conn.close()
-
-
-
-
-if __name__=="__main__":
-
-    create_purchase_order_acknowledged()
+        }

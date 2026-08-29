@@ -1,373 +1,230 @@
-from datetime import datetime, timezone
-import random
-
-from psycopg2.extras import Json
-
-from simulator.DB import get_connection
-from services.event_service import (
-    generate_event_id,
-    generate_correlation_id
-)
+from services.shipment_service import ShipmentService
+from services.inventory_service import InventoryService
+from services.event_service import EventService
+from services.id_service import IDService
 
 
 
-def get_completed_receiving_task(cursor):
+class InventoryReceivedGenerator:
 
-    cursor.execute(
-        """
-        SELECT id, payload
 
-        FROM event_outbox
+    def __init__(self):
 
-        WHERE event_type='TaskCompleted'
+        self.shipment_service = ShipmentService()
 
-        AND status='PENDING'
+        self.inventory_service = InventoryService()
 
-        ORDER BY created_at
-
-        LIMIT 1
-
-        FOR UPDATE SKIP LOCKED
-        """
-    )
-
-    return cursor.fetchone()
+        self.event_service = EventService()
 
 
 
-def get_asn(cursor, shipment_id):
+    def generate(
+        self,
+        shipment_id,
+        warehouse_id
+    ):
 
-    cursor.execute(
-        """
-        SELECT id, payload
 
-        FROM event_outbox
+        #
+        # 1.
+        # Get shipment products
+        #
 
-        WHERE event_type='ASNReceived'
+        items = (
 
-        AND aggregate_id=%s
+            self.shipment_service
+            .get_shipment_items(
 
-        AND status='PENDING'
+                shipment_id
 
-        ORDER BY created_at DESC
+            )
 
-        LIMIT 1
+        )
 
-        FOR UPDATE SKIP LOCKED
 
-        """,
-        (
+        total_quantity = 0
+
+        received_items = 0
+
+
+
+        #
+        # 2.
+        # Receive each product
+        #
+
+        for item in items:
+
+
+            product_id = item["product_id"]
+
+            quantity = item["quantity"]
+
+
+
+            #
+            # Increase inventory
+            #
+
+            self.inventory_service.receive_inventory(
+
+                product_id,
+
+                warehouse_id,
+
+                quantity
+
+            )
+
+
+            #
+            # Create inventory snapshot
+            #
+
+            self.inventory_service.create_snapshot(
+
+                product_id,
+
+                warehouse_id
+
+            )
+
+
+            total_quantity += quantity
+
+            received_items += 1
+
+
+
+        #
+        # 3.
+        # Update shipment items received quantity
+        #
+
+        self.shipment_service.receive_items(
+
             shipment_id,
-        )
-    )
 
-    return cursor.fetchone()
-
-
-
-def create_inventory_received():
-
-
-    conn=get_connection()
-    cursor=conn.cursor()
-
-
-    try:
-
-
-        task=get_completed_receiving_task(cursor)
-
-
-        if not task:
-
-            print(
-                "No completed receiving task"
-            )
-
-            return
-
-
-
-        source_event_id=task[0]
-        task_payload=task[1]
-
-
-        task_id=task_payload["task"]["task_id"]
-
-
-
-        shipment_id=(
-            task_id.replace(
-                "TASK-",
-                ""
-            )
-        )
-
-
-
-        asn=get_asn(
-            cursor,
-            shipment_id
-        )
-
-
-        if not asn:
-
-            print(
-                "ASN missing"
-            )
-
-            return
-
-
-
-        asn_event_id=asn[0]
-        asn_payload=asn[1]["asn"]
-
-        po_id=asn_payload["po_id"]
-
-        cursor.execute(
-            """
-            SELECT 1
-            FROM event_outbox
-            WHERE event_type='InventoryReceived'
-            AND aggregate_id=%s
-            LIMIT 1
-            """,
-            (shipment_id,)
-        )
-
-        if cursor.fetchone():
-            conn.rollback()
-            print("Inventory receipt already exists:", shipment_id)
-            return
-
-
-
-        now=datetime.now(
-            timezone.utc
-        )
-
-
-
-        received_items=[]
-
-
-        for item in asn_payload["items"]:
-
-
-            damaged=random.randint(
-                0,
-                2
-            )
-
-
-            received_quantity=(
-                item["quantity"]
-                -
-                damaged
-            )
-
-
-            received_items.append(
+            [
 
                 {
 
-                "product_id":
-                    item["product_id"],
+                    "product_id": item["product_id"],
 
+                    "received_quantity": item["quantity"],
 
-                "expected_quantity":
-                    item["quantity"],
-
-
-                "received_quantity":
-                    received_quantity,
-
-
-                "damaged_quantity":
-                    damaged
+                    "damaged_quantity":0
 
                 }
 
-            )
+                for item in items
 
-
-
-        grn_id = (
-
-            f"GRN-{shipment_id}"
+            ]
 
         )
 
 
+
+        #
+        # 4.
+        # Correlation ID
+        #
 
         correlation_id = (
-            generate_correlation_id(
-                po_id,
-                prefix="PO"
+
+            IDService
+            .generate_correlation_id(
+
+                "SHIP",
+
+                shipment_id
+
             )
+
         )
 
 
 
-        event={
+        #
+        # 5.
+        # Event payload
+        #
+
+        payload = {
 
 
-            "event_id":
-                generate_event_id(),
+            "shipment_id":
 
-
-            "event_type":
-                "InventoryReceived",
-
-
-            "event_version":
-                "1.0",
-
-
-            "timestamp":
-                now.isoformat(),
-
-
-            "source":
-                "warehouse-management-system",
-
-
-            "aggregate_type":
-                "SHIPMENT",
-
-
-            "aggregate_id":
                 shipment_id,
 
 
-            "correlation_id":
-                correlation_id,
+            "warehouse_id":
+
+                warehouse_id,
 
 
+            "items_received":
 
-            "goods_receipt":{
-
-
-                "grn_id":
-                    grn_id,
+                received_items,
 
 
-                "shipment_id":
-                    shipment_id,
+            "total_quantity":
 
-                "po_id":
-                    po_id,
+                total_quantity,
 
 
-                "supplier_id":
-                    asn_payload["supplier_id"],
+            "receiving_status":
 
-
-                "warehouse_id":
-                    asn_payload["warehouse_id"],
-
-
-                "items":
-                    received_items,
-
-
-                "status":
-                    "RECEIVED"
-
-            }
+                "COMPLETED"
 
         }
 
 
 
+        #
+        # 6.
+        # Publish event
+        #
 
-        cursor.execute(
+        self.event_service.publish_event(
 
-        """
-
-        INSERT INTO event_outbox
-
-        (
-
-        event_id,
-
-        event_type,
-
-        aggregate_type,
-
-        aggregate_id,
-
-        correlation_id,
-
-        payload
-
-        )
+            event_type=
+                "InventoryReceived",
 
 
-        VALUES
+            aggregate_type=
+                "INVENTORY",
 
-        (%s,%s,%s,%s,%s,%s)
 
-        """,
+            aggregate_id=
+                shipment_id,
 
-        (
 
-        event["event_id"],
+            correlation_id=
+                correlation_id,
 
-        event["event_type"],
 
-        "SHIPMENT",
-
-        shipment_id,
-
-        correlation_id,
-
-        Json(event)
-
-        )
+            payload=
+                payload
 
         )
 
 
-
-        cursor.execute(
-            """
-            UPDATE event_outbox
-            SET status='PROCESSED'
-            WHERE id=%s
-            """,
-            (source_event_id,)
-        )
-
-        conn.commit()
+        return {
 
 
-        print(
-            "Inventory Received:",
-            grn_id
-        )
+            "event":
+
+                "InventoryReceived",
 
 
-        return event
+            "shipment_id":
+
+                shipment_id,
 
 
+            "items_received":
 
-    except Exception as e:
+                received_items
 
-        conn.rollback()
-
-        raise e
-
-
-    finally:
-
-        cursor.close()
-        conn.close()
-
-
-
-if __name__=="__main__":
-
-    create_inventory_received()
+        }

@@ -1,207 +1,135 @@
-import random
-from datetime import datetime, timezone
-
-from psycopg2.extras import Json
-
-from simulator.DB import get_connection
-from services.event_service import (
-    generate_event_id,
-    generate_correlation_id
-)
+from services.shipment_service import ShipmentService
+from services.event_service import EventService
+from services.id_service import IDService
 
 
-def get_shipment(cursor):
+class SupplierShipmentDeliveredGenerator:
 
-    cursor.execute("""
-        SELECT
+
+    def __init__(self):
+
+        self.shipment_service = ShipmentService()
+
+        self.event_service = EventService()
+
+
+
+    def generate(
+        self,
+        shipment_id
+    ):
+
+
+        #
+        # 1.
+        # Update shipment status
+        #
+
+        self.shipment_service.update_status(
+
             shipment_id,
-                "aggregate_type":
-                    "SHIPMENT",
-                "aggregate_id":
-                    shipment_id,
-            po_id,
-            supplier_id,
-            warehouse_id,
-            total_quantity
-        FROM shipments
-        WHERE shipment_status IN ('ASN_RECEIVED','IN_TRANSIT')
-        ORDER BY random()
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED
-    """)
 
-    return cursor.fetchone()
+            "DELIVERED"
+
+        )
 
 
+        #
+        # 2.
+        # Update actual delivery timestamp
+        #
 
-def create_supplier_shipment_delivered():
+        self.shipment_service.mark_delivered(
 
-    conn = get_connection()
-    cursor = conn.cursor()
+            shipment_id
 
-
-    try:
-
-        shipment = get_shipment(cursor)
+        )
 
 
-        if not shipment:
-            raise Exception(
-                "No shipment available"
+        #
+        # 3.
+        # Correlation ID
+        #
+
+        correlation_id = (
+
+            IDService
+            .generate_correlation_id(
+
+                "SHIP",
+
+                shipment_id
+
             )
 
-
-        shipment_id = shipment[0]
-        po_id = shipment[1]
-        supplier_id = shipment[2]
-        warehouse_id = shipment[3]
-        quantity = shipment[4]
-
-
-        now=datetime.now(
-            timezone.utc
         )
 
 
-        correlation_id = generate_correlation_id(
-            po_id,
-            prefix="PO"
-        )
+        #
+        # 4.
+        # Payload
+        #
+
+        payload = {
 
 
-        event={
+            "shipment_id":
 
-            "event_id":
-                generate_event_id(),
-
-            "event_type":
-                "SupplierShipmentDelivered",
-
-            "event_version":
-                "1.0",
-
-            "timestamp":
-                now.isoformat(),
-
-            "source":
-                "supplier-service",
+                shipment_id,
 
 
-            "correlation_id":
-                correlation_id,
+            "shipment_status":
+
+                "DELIVERED",
 
 
-            "shipment":
+            "delivery_confirmed":
 
-            {
-
-                "shipment_id":
-                    shipment_id,
-
-                "po_id":
-                    po_id,
-
-                "supplier_id":
-                    supplier_id,
-
-                "warehouse_id":
-                    warehouse_id,
-
-
-                "received_quantity":
-                    quantity,
-
-
-                "delivery_status":
-                    "DELIVERED",
-
-
-                "delivery_time":
-                    now.isoformat()
-
-            }
+                True
 
         }
 
 
-        cursor.execute(
-        """
 
-        UPDATE shipments
+        #
+        # 5.
+        # Publish Event
+        #
 
-        SET
-            shipment_status='DELIVERED',
-            actual_delivery=%s,
-            updated_at=%s
+        self.event_service.publish_event(
 
-        WHERE shipment_id=%s
-
-        """,
-        (
-            now,
-            now,
-            shipment_id
-        )
-        )
+            event_type=
+                "SupplierShipmentDelivered",
 
 
-        cursor.execute(
-        """
-
-        INSERT INTO event_outbox
-
-        (
-            event_id,
-            event_type,
-            aggregate_type,
-            aggregate_id,
-            correlation_id,
-            payload
-        )
-
-        VALUES
-        (%s,%s,%s,%s,%s,%s)
-
-        """,
-
-        (
-
-        event["event_id"],
-
-        event["event_type"],
-
-        "SHIPMENT",
-
-        shipment_id,
-
-        correlation_id,
-
-        Json(event)
-
-        ))
-
-        conn.commit()
+            aggregate_type=
+                "SHIPMENT",
 
 
-        print(
-            "Delivered:",
-            shipment_id
+            aggregate_id=
+                shipment_id,
+
+
+            correlation_id=
+                correlation_id,
+
+
+            payload=
+                payload
+
         )
 
 
-    except Exception as e:
-
-        conn.rollback()
-        raise e
+        return {
 
 
-    finally:
+            "event":
 
-        cursor.close()
-        conn.close()
-
+                "SupplierShipmentDelivered",
 
 
-if __name__=="__main__":
+            "shipment_id":
 
-    create_supplier_shipment_delivered()
+                shipment_id
+
+        }

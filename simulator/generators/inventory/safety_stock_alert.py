@@ -21,17 +21,23 @@ def generate_alert():
 
     SELECT
 
-    product_id,
-    warehouse_id,
-    available_quantity,
-    safety_stock
+    i.product_id,
+    i.warehouse_id,
+    i.available_quantity,
+    i.safety_stock
 
 
-    FROM inventory
+    FROM inventory i
 
 
-    WHERE available_quantity
-    < safety_stock
+    WHERE i.available_quantity < i.safety_stock
+    AND NOT EXISTS (
+        SELECT 1 FROM inventory_alerts
+        WHERE product_id = i.product_id
+        AND warehouse_id = i.warehouse_id
+        AND alert_type = 'SAFETY_STOCK'
+        AND alert_status = 'ACTIVE'
+    )
 
 
     LIMIT 1
@@ -148,7 +154,15 @@ def generate_alert():
 
     ))
 
-
+    # Insert into inventory_alerts to track the alert
+    cursor.execute(
+        """
+        INSERT INTO inventory_alerts
+        (alert_id, product_id, warehouse_id, alert_type, alert_status, created_at)
+        VALUES (%s, %s, %s, 'SAFETY_STOCK', 'ACTIVE', NOW())
+        """,
+        (f"ALERT-{product_id}-{warehouse_id}", product_id, warehouse_id)
+    )
 
     conn.commit()
 

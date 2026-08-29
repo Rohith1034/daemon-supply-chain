@@ -1,286 +1,107 @@
-from datetime import datetime, timezone
-
-from psycopg2.extras import Json
-
-from simulator.DB import get_connection
-from services.event_service import (
-    generate_event_id,
-    generate_correlation_id
-)
+from services.po_service import POService
+from services.event_service import EventService
+from services.id_service import IDService
 
 
 
-def get_pending_approval_po(cursor):
+class PurchaseOrderApprovedGenerator:
 
-    cursor.execute(
-        """
-        SELECT
 
-            po_id,
-            supplier_id,
-            warehouse_id,
-            total_quantity,
-            total_amount
+    def __init__(self):
 
-        FROM purchase_orders
+        self.po_service = POService()
 
-        WHERE po_status='CREATED'
-
-        ORDER BY order_date
-
-        LIMIT 1
-
-        """
-    )
-
-    return cursor.fetchone()
+        self.event_service = EventService()
 
 
 
-def create_purchase_order_approved():
+    def generate(self, po_id):
 
 
-    conn = get_connection()
-    cursor = conn.cursor()
+        # 1. Approve PO
 
-
-    try:
-
-
-        po = get_pending_approval_po(cursor)
-
-
-        if not po:
-
-            print(
-                "No PO waiting for approval"
+        result = (
+            self.po_service
+            .approve_purchase_order(
+                po_id
             )
-
-            return
-
-
-
-        po_id = po[0]
-
-        supplier_id = po[1]
-
-        warehouse_id = po[2]
-
-        total_quantity = po[3]
-
-        total_amount = po[4]
-
-
-
-        now = datetime.now(
-            timezone.utc
         )
 
+
+        # 2. Same correlation ID
 
         correlation_id = (
-            generate_correlation_id(
-                po_id,
-                prefix="PO"
+            IDService
+            .generate_correlation_id(
+                "PO",
+                po_id
             )
         )
 
 
+        # 3. Event payload
 
-        event = {
-
-
-            "event_id":
-                generate_event_id(),
+        payload = {
 
 
-            "event_type":
-                "PurchaseOrderApproved",
-
-
-            "event_version":
-                "1.0",
-
-
-            "timestamp":
-                now.isoformat(),
-
-
-            "source":
-                "procurement-service",
-
-
-
-            "aggregate_type":
-                "PURCHASE_ORDER",
-
-
-            "aggregate_id":
+            "po_id":
                 po_id,
 
 
-            "correlation_id":
-                correlation_id,
+            "supplier_id":
+                result["supplier_id"],
 
 
-
-            "purchase_order":{
-
-
-                "po_id":
-                    po_id,
+            "warehouse_id":
+                result["warehouse_id"],
 
 
-                "supplier_id":
-                    supplier_id,
+            "previous_status":
+                result["old_status"],
 
 
-                "warehouse_id":
-                    warehouse_id,
-
-
-                "approval":{
-
-
-                    "status":
-                        "APPROVED",
-
-
-                    "approved_by":
-                        "SYSTEM",
-
-
-                    "approved_at":
-                        now.isoformat()
-
-                },
-
-
-                "total_quantity":
-                    total_quantity,
-
-
-                "total_amount":
-                    float(total_amount)
-
-            }
-
+            "new_status":
+                result["new_status"]
 
         }
 
 
 
-        # Update PO status
+        # 4. Event outbox
 
-        cursor.execute(
+        self.event_service.publish_event(
 
-        """
-
-        UPDATE purchase_orders
-
-        SET
-
-        po_status='APPROVED',
-
-        updated_at=%s
+            event_type=
+                "PurchaseOrderApproved",
 
 
-        WHERE po_id=%s
+            aggregate_type=
+                "PURCHASE_ORDER",
 
 
-        """,
+            aggregate_id=
+                po_id,
 
-        (
 
-        now,
+            correlation_id=
+                correlation_id,
 
-        po_id
 
-        )
+            payload=
+                payload
 
         )
 
 
+        return {
 
-        # Outbox event
+            "event":
+                "PurchaseOrderApproved",
 
-        cursor.execute(
+            "po_id":
+                po_id,
 
-        """
+            "correlation_id":
+                correlation_id
 
-        INSERT INTO event_outbox
-
-        (
-
-        event_id,
-
-        event_type,
-
-        aggregate_type,
-
-        aggregate_id,
-
-        correlation_id,
-
-        payload
-
-        )
-
-
-        VALUES
-
-        (%s,%s,%s,%s,%s,%s)
-
-
-        """,
-
-        (
-
-        event["event_id"],
-
-        event["event_type"],
-
-        "PURCHASE_ORDER",
-
-        po_id,
-
-        correlation_id,
-
-        Json(event)
-
-        )
-
-        )
-
-
-        conn.commit()
-
-
-        print(
-            "PO Approved:",
-            po_id
-        )
-
-
-        return event
-
-
-
-    except Exception as e:
-
-        conn.rollback()
-
-        raise e
-
-
-
-    finally:
-
-        cursor.close()
-
-        conn.close()
-
-
-
-if __name__=="__main__":
-
-    create_purchase_order_approved()
+        }

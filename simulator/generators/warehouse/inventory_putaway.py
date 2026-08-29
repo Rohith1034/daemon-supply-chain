@@ -1,209 +1,122 @@
-import random
-
-from datetime import datetime, timezone
-
-from psycopg2.extras import Json
-
-from simulator.DB import get_connection
-
-from services.event_service import (
-    generate_event_id,
-    generate_correlation_id
-)
+from services.shipment_service import ShipmentService
+from services.warehouse_service import WarehouseService
+from services.event_service import EventService
+from services.id_service import IDService
 
 
 
-def get_inventory_received(cursor):
+class InventoryPutawayGenerator:
 
-    cursor.execute(
-        """
-        SELECT id, payload
 
-        FROM event_outbox
+    def __init__(self):
 
-        WHERE event_type='InventoryReceived'
+        self.shipment_service = ShipmentService()
 
-        AND status='PENDING'
+        self.warehouse_service = WarehouseService()
 
-        ORDER BY created_at DESC
-
-        LIMIT 1
-
-        FOR UPDATE SKIP LOCKED
-        """
-    )
-
-    return cursor.fetchone()
+        self.event_service = EventService()
 
 
 
-def get_worker(cursor, warehouse_id):
-
-    cursor.execute(
-        """
-        SELECT worker_id,
-               role
-
-        FROM workers
-
-        WHERE warehouse_id=%s
-
-        AND employment_status='Active'
-
-        AND role IN
-        (
-        'Inventory Clerk',
-        'Warehouse Associate'
-        )
-
-        ORDER BY random()
-
-        LIMIT 1
-        """,
-        (
-            warehouse_id,
-        )
-    )
-
-    return cursor.fetchone()
+    def generate(
+        self,
+        shipment_id,
+        warehouse_id
+    ):
 
 
+        #
+        # 1.
+        # Get shipment items
+        #
 
-def get_location(cursor, warehouse_id):
+        items = (
 
-
-    cursor.execute(
-        """
-        SELECT
-        location_id,
-        zone,
-        aisle,
-        rack,
-        bin
-
-        FROM warehouse_locations
-
-        WHERE warehouse_id=%s
-
-        AND status='ACTIVE'
-
-        ORDER BY random()
-
-        LIMIT 1
-
-        """,
-        (
-            warehouse_id,
-        )
-    )
-
-
-    return cursor.fetchone()
-
-
-
-def create_inventory_putaway():
-
-
-    conn=get_connection()
-
-    cursor=conn.cursor()
-
-
-    try:
-
-
-        record=get_inventory_received(cursor)
-
-
-        if not record:
-
-            print(
-                "No InventoryReceived event"
+            self.shipment_service
+            .get_shipment_items(
+                shipment_id
             )
 
-            return
-
-
-
-        source_event_id=record[0]
-        received_event=record[1]
-
-
-        receipt=received_event[
-            "goods_receipt"
-        ]
-
-
-        warehouse_id=receipt[
-            "warehouse_id"
-        ]
-
-
-        shipment_id=receipt[
-            "shipment_id"
-        ]
-
-        po_id=receipt[
-            "po_id"
-        ]
-
-
-
-        worker=get_worker(
-            cursor,
-            warehouse_id
         )
 
 
-        location=get_location(
-            cursor,
-            warehouse_id
-        )
+        if not items:
+
+            return {
+
+                "event":
+                    "InventoryPutawayCreated",
+
+                "tasks_created":
+                    0
+
+            }
 
 
 
-        if not worker:
+        created_tasks = []
 
-            raise Exception(
-                "No warehouse worker found"
+
+
+        #
+        # 2.
+        # Create putaway task
+        #
+
+        for item in items:
+
+
+            location = (
+
+                self.warehouse_service
+                .get_available_location(
+
+                    warehouse_id
+
+                )
+
             )
 
 
-        if not location:
+            if not location:
 
-            raise Exception(
-                "No warehouse location found"
+                continue
+
+
+
+            task_id = (
+
+                self.warehouse_service
+                .create_task(
+
+                    task_type="PUTAWAY",
+
+                    warehouse_id=warehouse_id,
+
+                    shipment_id=shipment_id,
+
+                    product_id=item["product_id"],
+
+                    location=location["location_id"],
+
+                    quantity=item["quantity"]
+
+                )
+
             )
 
 
-
-        now=datetime.now(
-            timezone.utc
-        )
-
-
-
-        putaway_items=[]
-
-
-        for item in receipt["items"]:
-
-
-            putaway_items.append(
+            created_tasks.append(
 
                 {
 
-                "product_id":
-                    item["product_id"],
+                    "task_id": task_id,
 
+                    "product_id":
+                        item["product_id"],
 
-                "quantity":
-                    item["received_quantity"],
-
-
-                "location_id":
-                    location[0]
+                    "location":
+                        location["location"]
 
                 }
 
@@ -211,206 +124,94 @@ def create_inventory_putaway():
 
 
 
-        correlation_id=(
-            generate_correlation_id(
-                po_id,
-                prefix="PO"
+        #
+        # 3.
+        # Correlation
+        #
+
+        correlation_id = (
+
+            IDService
+            .generate_correlation_id(
+
+                "SHIP",
+
+                shipment_id
+
             )
+
         )
 
 
 
-        task_id = (
-            f"PUT-{shipment_id}"
+        #
+        # 4.
+        # Publish event
+        #
+
+        self.event_service.publish_event(
+
+            event_type=
+                "InventoryPutawayCreated",
+
+
+            aggregate_type=
+                "WAREHOUSE_TASK",
+
+
+            aggregate_id=
+                shipment_id,
+
+
+            correlation_id=
+                correlation_id,
+
+
+            payload=
+
+            {
+
+                "shipment_id":
+                    shipment_id,
+
+
+                "warehouse_id":
+                    warehouse_id,
+
+
+                "task_type":
+                    "PUTAWAY",
+
+
+                "tasks_created":
+                    len(created_tasks),
+
+
+                "tasks":
+                    created_tasks
+
+            }
+
         )
 
 
 
-        event={
+        return {
 
 
-        "event_id":
-            generate_event_id(),
-
-
-        "event_type":
-            "InventoryPutaway",
-
-
-        "event_version":
-            "1.0",
-
-
-        "timestamp":
-            now.isoformat(),
-
-
-        "source":
-            "warehouse-management-system",
-
-
-        "aggregate_type":
-            "WAREHOUSE_TASK",
-
-
-        "aggregate_id":
-            task_id,
-
-
-        "correlation_id":
-            correlation_id,
-
-
-
-        "putaway":{
-
-
-            "task_id":
-                task_id,
+            "event":
+                "InventoryPutawayCreated",
 
 
             "shipment_id":
                 shipment_id,
-
-            "po_id":
-                po_id,
 
 
             "warehouse_id":
                 warehouse_id,
 
 
-            "assigned_worker":{
-
-
-                "worker_id":
-                    worker[0],
-
-                "role":
-                    worker[1]
-
-            },
-
-
-            "destination_location":{
-
-
-                "location_id":
-                    location[0],
-
-
-                "zone":
-                    location[1],
-
-
-                "aisle":
-                    location[2],
-
-
-                "rack":
-                    location[3],
-
-
-                "bin":
-                    location[4]
-
-            },
-
-
-            "items":
-                putaway_items,
-
-
-            "status":
-                "COMPLETED"
-
+            "tasks_created":
+                len(created_tasks)
 
         }
-
-
-        }
-
-
-
-        cursor.execute(
-
-        """
-
-        INSERT INTO event_outbox
-
-        (
-
-        event_id,
-        event_type,
-        aggregate_type,
-        aggregate_id,
-        correlation_id,
-        payload
-
-        )
-
-        VALUES
-
-        (%s,%s,%s,%s,%s,%s)
-
-        """,
-
-        (
-
-        event["event_id"],
-
-        event["event_type"],
-
-        "WAREHOUSE_TASK",
-
-        task_id,
-
-        correlation_id,
-
-        Json(event)
-
-        )
-
-        )
-
-
-
-        cursor.execute(
-            """
-            UPDATE event_outbox
-            SET status='PROCESSED'
-            WHERE id=%s
-            """,
-            (source_event_id,)
-        )
-
-        conn.commit()
-
-
-        print(
-            "Putaway completed:",
-            task_id
-        )
-
-
-        return event
-
-
-
-    except Exception as e:
-
-        conn.rollback()
-
-        raise e
-
-
-    finally:
-
-        cursor.close()
-        conn.close()
-
-
-
-if __name__=="__main__":
-
-    create_inventory_putaway()

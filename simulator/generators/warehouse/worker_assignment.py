@@ -1,15 +1,16 @@
+from services.worker_service import WorkerService
 from services.warehouse_service import WarehouseService
 from services.event_service import EventService
 from services.id_service import IDService
 
 
 
-class TaskStartedGenerator:
+class WorkerAssignmentGenerator:
 
 
     def __init__(self):
 
-        self.warehouse_service = WarehouseService()
+        self.worker_service = WorkerService()
 
         self.event_service = EventService()
 
@@ -18,25 +19,60 @@ class TaskStartedGenerator:
     def generate(
         self,
         task_id,
-        worker_id
+        warehouse_id
     ):
 
 
         #
         # 1.
-        # Update task status
+        # Find worker
         #
 
-        self.warehouse_service.start_task(
+        worker_id = (
 
-            task_id
+            self.worker_service
+            .get_available_worker(
+
+                warehouse_id,
+
+                "PUTAWAY"
+
+            )
+
+        )
+
+
+        if not worker_id:
+
+            return {
+
+                "event":
+                    "WorkerAssignmentCreated",
+
+                "status":
+                    "NO_WORKER_AVAILABLE"
+
+            }
+
+
+
+        #
+        # 2.
+        # Assign
+        #
+
+        self.worker_service.assign_task(
+
+            task_id,
+
+            worker_id
 
         )
 
 
 
         #
-        # 2.
+        # 3.
         # Correlation
         #
 
@@ -56,14 +92,14 @@ class TaskStartedGenerator:
 
 
         #
-        # 3.
-        # Publish event
+        # 4.
+        # Event
         #
 
         self.event_service.publish_event(
 
             event_type=
-                "TaskStarted",
+                "WorkerAssignmentCreated",
 
 
             aggregate_type=
@@ -89,8 +125,12 @@ class TaskStartedGenerator:
                     worker_id,
 
 
+                "warehouse_id":
+                    warehouse_id,
+
+
                 "status":
-                    "IN_PROGRESS"
+                    "ASSIGNED"
 
 
             }
@@ -98,11 +138,12 @@ class TaskStartedGenerator:
         )
 
 
+
         return {
 
 
             "event":
-                "TaskStarted",
+                "WorkerAssignmentCreated",
 
 
             "task_id":
