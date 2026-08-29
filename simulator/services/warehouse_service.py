@@ -311,38 +311,4 @@ class WarehouseService:
 
         )
 
-    def complete_task(
-            self,
-            task_id,
-            actual_minutes
-    ):
-
-        sql = """
-
-        UPDATE warehouse_tasks
-
-        SET
-
-            status='COMPLETED',
-
-            actual_minutes=%s,
-
-            completed_at=NOW()
-
-
-        WHERE task_id=%s
-
-        """
-
-        DatabaseService.update(
-
-            sql,
-
-            (
-                actual_minutes,
-                task_id
-            )
-
-        )
-
-        return True
+    
