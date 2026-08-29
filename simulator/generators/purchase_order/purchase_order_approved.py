@@ -1,107 +1,221 @@
-from services.po_service import POService
-from services.event_service import EventService
-from services.id_service import IDService
+from datetime import datetime, timezone
+
+from core.db import Database
+
+from core.outbox import publish_event
+
+from core.logger import (
+    log_event_success,
+    log_event_failure
+)
+
+
+EVENT_NAME = "PurchaseOrderApproved"
 
 
 
-class PurchaseOrderApprovedGenerator:
+def approve_purchase_order():
+
+    with Database() as db:
 
 
-    def __init__(self):
+        # --------------------------------
+        # Fetch latest CREATED PO
+        # --------------------------------
 
-        self.po_service = POService()
+        po = db.fetch_one(
 
-        self.event_service = EventService()
+            """
+            SELECT *
+            FROM purchase_orders
+            WHERE po_status='CREATED'
+            ORDER BY created_at
+            LIMIT 1
+            """
 
-
-
-    def generate(self, po_id):
-
-
-        # 1. Approve PO
-
-        result = (
-            self.po_service
-            .approve_purchase_order(
-                po_id
-            )
         )
 
 
-        # 2. Same correlation ID
+        if not po:
 
-        correlation_id = (
-            IDService
-            .generate_correlation_id(
-                "PO",
-                po_id
+            raise Exception(
+                "No CREATED purchase order found"
             )
+
+
+
+        po_id = po["po_id"]
+
+
+
+        previous_status = po["po_status"]
+
+
+
+        approved_time = datetime.now(
+            timezone.utc
         )
 
 
-        # 3. Event payload
+
+        # --------------------------------
+        # Update PO
+        # --------------------------------
+
+        db.execute(
+
+            """
+            UPDATE purchase_orders
+
+            SET
+
+                po_status='APPROVED',
+
+                updated_at=%s
+
+            WHERE po_id=%s
+
+            """,
+
+            (
+
+                approved_time,
+
+                po_id
+
+            )
+
+        )
+
+
+
+        # --------------------------------
+        # Prepare payload
+        # --------------------------------
 
         payload = {
 
 
+            "event_type":
+
+                EVENT_NAME,
+
+
             "po_id":
+
                 po_id,
 
 
             "supplier_id":
-                result["supplier_id"],
+
+                po["supplier_id"],
 
 
             "warehouse_id":
-                result["warehouse_id"],
+
+                po["warehouse_id"],
 
 
             "previous_status":
-                result["old_status"],
+
+                previous_status,
 
 
             "new_status":
-                result["new_status"]
+
+                "APPROVED",
+
+
+            "approved_at":
+
+                approved_time.isoformat(),
+
+
+            "correlation_id":
+
+                str(
+                    po["correlation_id"]
+                )
 
         }
 
 
 
-        # 4. Event outbox
+        # --------------------------------
+        # Outbox Event
+        # --------------------------------
 
-        self.event_service.publish_event(
+        publish_event(
 
-            event_type=
-                "PurchaseOrderApproved",
+            db=db,
 
+            event_type=EVENT_NAME,
 
-            aggregate_type=
-                "PURCHASE_ORDER",
+            aggregate_type="PURCHASE_ORDER",
 
+            aggregate_id=po_id,
 
-            aggregate_id=
-                po_id,
+            correlation_id=str(
+                po["correlation_id"]
+            ),
 
-
-            correlation_id=
-                correlation_id,
-
-
-            payload=
-                payload
+            payload=payload
 
         )
 
 
-        return {
 
-            "event":
-                "PurchaseOrderApproved",
+        log_event_success(
 
-            "po_id":
-                po_id,
+            EVENT_NAME,
 
-            "correlation_id":
-                correlation_id
+            {
 
-        }
+                "po_id":
+
+                    po_id,
+
+
+                "supplier_id":
+
+                    po["supplier_id"],
+
+
+                "warehouse_id":
+
+                    po["warehouse_id"],
+
+
+                "correlation_id":
+
+                    str(
+                        po["correlation_id"]
+                    )
+
+            }
+
+        )
+
+
+
+
+if __name__ == "__main__":
+
+
+    try:
+
+        approve_purchase_order()
+
+
+    except Exception as e:
+
+
+        log_event_failure(
+
+            EVENT_NAME,
+
+            e
+
+        )
+
+        raise

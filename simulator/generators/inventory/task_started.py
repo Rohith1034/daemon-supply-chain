@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 from core.db import Database
+
 from core.outbox import publish_event
 
 from core.logger import (
@@ -15,28 +16,42 @@ EVENT_NAME = "TaskStarted"
 
 def generate_task_started():
 
-
     with Database() as db:
 
 
-        # ------------------------------------
-        # Find CREATED warehouse task
-        # Supports:
-        # PICKING
-        # PACKING
-        # PUTAWAY
-        # RECEIVING
-        # CYCLE_COUNT
-        # ------------------------------------
+        # ------------------------------------------------
+        # Find next pending warehouse task
+        # ------------------------------------------------
 
         task = db.fetch_one(
 
             """
-            SELECT *
+
+            SELECT
+
+                task_id,
+                task_type,
+                shipment_id,
+                warehouse_id,
+                product_id,
+                location,
+                quantity,
+                assigned_worker_id,
+                correlation_id
+
+
             FROM warehouse_tasks
+
+
             WHERE status='CREATED'
+
+
             ORDER BY created_at
+
+
             LIMIT 1
+
+
             """
 
         )
@@ -49,7 +64,59 @@ def generate_task_started():
             )
 
 
+
         task_id = task["task_id"]
+
+        worker_id = task["assigned_worker_id"]
+
+
+
+        # ------------------------------------------------
+        # Validate worker
+        # ------------------------------------------------
+
+        worker = db.fetch_one(
+
+            """
+
+            SELECT
+
+                worker_id,
+                current_status
+
+
+            FROM workers
+
+
+            WHERE worker_id=%s
+
+
+            """,
+
+            (
+
+                worker_id,
+
+            )
+
+        )
+
+
+        if not worker:
+
+            raise Exception(
+                f"Worker not found {worker_id}"
+            )
+
+
+        if worker["current_status"] != "AVAILABLE":
+
+            raise Exception(
+
+                f"Worker {worker_id} not available"
+
+            )
+
 
 
         now = datetime.now(
@@ -57,18 +124,17 @@ def generate_task_started():
         )
 
 
-        worker_id = task["assigned_worker_id"]
 
-
-
-        # ------------------------------------
-        # Update task status
-        # ------------------------------------
+        # ------------------------------------------------
+        # Update warehouse task
+        # ------------------------------------------------
 
         db.execute(
 
             """
+
             UPDATE warehouse_tasks
+
 
             SET
 
@@ -76,11 +142,11 @@ def generate_task_started():
 
                 task_started_at=%s,
 
-                started_by=%s,
+                started_by=%s
 
-                assigned_at=COALESCE(assigned_at,%s)
 
             WHERE task_id=%s
+
 
             """,
 
@@ -90,8 +156,6 @@ def generate_task_started():
 
                 worker_id,
 
-                now,
-
                 task_id
 
             )
@@ -100,36 +164,41 @@ def generate_task_started():
 
 
 
-        # ------------------------------------
+        # ------------------------------------------------
         # Update worker status
-        # ------------------------------------
+        # ------------------------------------------------
 
-        if worker_id:
+        db.execute(
 
-            db.execute(
+            """
 
-                """
-                UPDATE workers
+            UPDATE workers
 
-                SET current_status='BUSY'
 
-                WHERE worker_id=%s
+            SET
 
-                """,
+                current_status='BUSY'
 
-                (
 
-                    worker_id,
+            WHERE worker_id=%s
 
-                )
+
+            """,
+
+            (
+
+                worker_id,
 
             )
 
+        )
 
 
-        # ------------------------------------
+
+        # ------------------------------------------------
         # Payload
-        # ------------------------------------
+        # ------------------------------------------------
+
 
         payload = {
 
@@ -144,7 +213,8 @@ def generate_task_started():
                 now.isoformat(),
 
 
-            "warehouseTask":
+            "task":
+
 
             {
 
@@ -157,6 +227,11 @@ def generate_task_started():
                 "taskType":
 
                     task["task_type"],
+
+
+                "shipmentId":
+
+                    task["shipment_id"],
 
 
                 "warehouseId":
@@ -172,11 +247,6 @@ def generate_task_started():
                 "locationId":
 
                     task["location"],
-
-
-                "shipmentId":
-
-                    task["shipment_id"],
 
 
                 "quantity":
@@ -211,9 +281,10 @@ def generate_task_started():
 
 
 
-        # ------------------------------------
+        # ------------------------------------------------
         # Publish event
-        # ------------------------------------
+        # ------------------------------------------------
+
 
         publish_event(
 
@@ -235,15 +306,17 @@ def generate_task_started():
 
 
 
-        # ------------------------------------
-        # Console Output
-        # ------------------------------------
+        # ------------------------------------------------
+        # Console output
+        # ------------------------------------------------
+
 
         log_event_success(
 
             EVENT_NAME,
 
             {
+
 
                 "task_id":
 
@@ -277,7 +350,6 @@ def generate_task_started():
             }
 
         )
-
 
 
 

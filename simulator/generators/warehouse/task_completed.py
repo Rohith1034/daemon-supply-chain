@@ -1,164 +1,311 @@
-from services.warehouse_service import WarehouseService
-from services.inventory_service import InventoryService
-from services.worker_service import WorkerService
-from services.event_service import EventService
-from services.id_service import IDService
+from datetime import datetime, timezone
 import random
 
 
-class TaskCompletedGenerator:
+from core.db import Database
+
+from core.outbox import publish_event
+
+from core.logger import (
+    log_event_success,
+    log_event_failure
+)
 
 
-    def __init__(self):
-
-        self.warehouse_service = WarehouseService()
-
-        self.inventory_service = InventoryService()
-
-        self.worker_service = WorkerService()
-
-        self.event_service = EventService()
-
-
-
-    def generate(
-        self,
-        task
-    ):
-
-
-        task_id = task["task_id"]
-
-        worker_id = task["worker_id"]
-
-        product_id = task["product_id"]
-
-        warehouse_id = task["warehouse_id"]
-
-        quantity = task["quantity"]
+EVENT_NAME = "TaskCompleted"
 
 
 
-        #
-        # Random execution time
-        #
+def generate_task_completed():
+
+
+    with Database() as db:
+
+
+        # ---------------------------------
+        # Find started receiving task
+        # ---------------------------------
+
+        task = db.fetch_one(
+            """
+            SELECT *
+            FROM warehouse_tasks
+            WHERE status='STARTED'
+            ORDER BY task_started_at
+            LIMIT 1
+            """
+        )
+
+
+        if not task:
+            raise Exception(
+                "No STARTED warehouse task found"
+            )
+
+
+        completed_time = datetime.now(
+            timezone.utc
+        )
+
+
+        worker_id = task["assigned_worker_id"]
+
 
         actual_minutes = random.randint(
             10,
-            60
+            45
+        )
+
+
+        accuracy_score = round(
+            random.uniform(95,100),
+            2
+        )
+
+
+        productivity_score = round(
+            random.uniform(85,100),
+            2
         )
 
 
 
-        #
-        # 1.
-        # Complete warehouse task
-        #
+        # ---------------------------------
+        # Update warehouse task
+        # ---------------------------------
 
-        self.warehouse_service.complete_task(
+        db.execute(
+            """
+            UPDATE warehouse_tasks
 
-            task_id,
+            SET
 
-            actual_minutes
+            status='COMPLETED',
 
+            actual_minutes=%s,
+
+            completed_at=%s,
+
+            task_completed_at=%s,
+
+            completed_by=%s
+
+
+            WHERE task_id=%s
+
+            """,
+            (
+                actual_minutes,
+
+                completed_time,
+
+                completed_time,
+
+                worker_id,
+
+                task["task_id"]
+            )
         )
 
 
 
-        #
-        # 2.
-        # Increase inventory
-        #
+        # ---------------------------------
+        # Insert LMS productivity
+        # ---------------------------------
 
-        self.inventory_service.increase_inventory(
+        db.execute(
+            """
 
-            product_id,
+            INSERT INTO worker_productivity
+            (
+                worker_id,
+                task_type,
+                units_processed,
+                working_minutes,
+                accuracy_score,
+                productivity_score,
+                task_id,
+                warehouse_id,
+                correlation_id
+            )
 
-            warehouse_id,
 
-            quantity
+            VALUES
 
+            (
+                %s,%s,%s,%s,%s,%s,%s,%s,%s
+            )
+
+            """,
+
+            (
+
+                worker_id,
+
+                task["task_type"],
+
+                task["quantity"],
+
+                actual_minutes,
+
+                accuracy_score,
+
+                productivity_score,
+
+                task["task_id"],
+
+                task["warehouse_id"],
+
+                task["correlation_id"]
+
+            )
         )
 
 
 
-        #
-        # 3.
-        # Worker productivity
-        #
+        # ---------------------------------
+        # Event payload
+        # ---------------------------------
 
-        self.worker_service.record_productivity(
-
-            worker_id,
-
-            "PUTAWAY",
-
-            quantity,
-
-            actual_minutes
-
-        )
+        payload = {
 
 
-
-        #
-        # 4.
-        # Correlation ID
-        #
-
-        correlation_id = IDService.generate_correlation_id(
-
-            "TASK",
-
-            task_id
-
-        )
+            "event_type":
+                EVENT_NAME,
 
 
+            "task_id":
+                task["task_id"],
 
-        #
-        # 5.
-        # Publish event
-        #
 
-        self.event_service.publish_event(
+            "task_type":
+                task["task_type"],
 
-            event_type="TaskCompleted",
+
+            "shipment_id":
+                task["shipment_id"],
+
+
+            "warehouse_id":
+                task["warehouse_id"],
+
+
+            "worker_id":
+                worker_id,
+
+
+            "status":
+                "COMPLETED",
+
+
+            "actual_minutes":
+                actual_minutes,
+
+
+            "units_processed":
+                task["quantity"],
+
+
+            "accuracy_score":
+                accuracy_score,
+
+
+            "productivity_score":
+                productivity_score,
+
+
+            "correlation_id":
+                str(task["correlation_id"])
+
+        }
+
+
+
+        # ---------------------------------
+        # Outbox
+        # ---------------------------------
+
+        publish_event(
+
+            db=db,
+
+            event_type=EVENT_NAME,
 
             aggregate_type="WAREHOUSE_TASK",
 
-            aggregate_id=task_id,
+            aggregate_id=task["task_id"],
 
-            correlation_id=correlation_id,
+            correlation_id=str(
+                task["correlation_id"]
+            ),
+
+            payload=payload
+
+        )
 
 
-            payload={
 
-                "task_id":task_id,
+        log_event_success(
 
-                "worker_id":worker_id,
+            EVENT_NAME,
 
-                "product_id":product_id,
+            {
 
-                "warehouse_id":warehouse_id,
+                "task_id":
+                    task["task_id"],
 
-                "quantity":quantity,
 
-                "status":"COMPLETED"
+                "task_type":
+                    task["task_type"],
+
+
+                "shipment_id":
+                    task["shipment_id"],
+
+
+                "warehouse_id":
+                    task["warehouse_id"],
+
+
+                "worker_id":
+                    worker_id,
+
+
+                "actual_minutes":
+                    actual_minutes,
+
+
+                "productivity_score":
+                    productivity_score,
+
+
+                "correlation_id":
+                    task["correlation_id"]
 
             }
 
         )
 
 
-        return {
 
 
-            "event":
-            "TaskCompleted",
+
+if __name__ == "__main__":
 
 
-            "task_id":
-            task_id
+    try:
 
-        }
+        generate_task_completed()
+
+
+    except Exception as e:
+
+        log_event_failure(
+
+            EVENT_NAME,
+
+            e
+
+        )
+
+        raise

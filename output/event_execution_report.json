@@ -1,0 +1,159 @@
+[
+    {
+        "event": "PurchaseOrderCreated",
+        "file": "generators/purchase_order/purchase_order_created.py",
+        "status": "SUCCESS",
+        "duration_seconds": 0.85,
+        "stdout": "\n============================================================\nEVENT : PurchaseOrderCreated\nPO ID               : PO-000000059\nSUPPLIER ID         : SUP-00208\nWAREHOUSE ID        : WH-00025\nITEMS               : 4\nQUANTITY            : 116\nAMOUNT              : 3463.40\nCORRELATION ID      : 74cc4626-59e6-41b7-84d4-52d00cd8a0c1\nTIME : 2026-08-29 23:01:18.457437+00:00\nSTATUS : SUCCESS\n============================================================\n\n",
+        "stderr": "",
+        "table_changes": {
+            "purchase_orders": 1,
+            "purchase_order_items": 4
+        },
+        "executed_at": "2026-08-30T04:31:19.067956"
+    },
+    {
+        "event": "PurchaseOrderApproved",
+        "file": "generators/purchase_order/purchase_order_approved.py",
+        "status": "SUCCESS",
+        "duration_seconds": 0.48,
+        "stdout": "\n============================================================\nEVENT : PurchaseOrderApproved\nPO ID               : PO-000000059\nSUPPLIER ID         : SUP-00208\nWAREHOUSE ID        : WH-00025\nCORRELATION ID      : 74cc4626-59e6-41b7-84d4-52d00cd8a0c1\nTIME : 2026-08-29 23:01:20.084924+00:00\nSTATUS : SUCCESS\n============================================================\n\n",
+        "stderr": "",
+        "table_changes": {},
+        "executed_at": "2026-08-30T04:31:20.662513"
+    },
+    {
+        "event": "SupplierShipmentCreated",
+        "file": "generators/supplier/supplier_shipment_created.py",
+        "status": "SUCCESS",
+        "duration_seconds": 0.56,
+        "stdout": "\n============================================================\nEVENT : SupplierShipmentCreated\nSHIPMENT ID         : SHIP-000000053\nPO ID               : PO-000000059\nSUPPLIER ID         : SUP-00208\nWAREHOUSE ID        : WH-00025\nQUANTITY            : 116\nCORRELATION ID      : 74cc4626-59e6-41b7-84d4-52d00cd8a0c1\nTIME : 2026-08-29 23:01:21.773894+00:00\nSTATUS : SUCCESS\n============================================================\n\n[{'shipment_id': 'SHIP-000000053', 'po_id': 'PO-000000059'}]\n",
+        "stderr": "",
+        "table_changes": {
+            "shipments": 1,
+            "shipment_items": 4
+        },
+        "executed_at": "2026-08-30T04:31:22.394086"
+    },
+    {
+        "event": "ASNReceived",
+        "file": "generators/purchase_order/asn_received.py",
+        "status": "SUCCESS",
+        "duration_seconds": 0.46,
+        "stdout": "\n============================================================\nEVENT : ASNReceived\nPO ID               : PO-000000059\nSHIPMENT ID         : SHIP-000000053\nSUPPLIER ID         : SUP-00208\nWAREHOUSE ID        : WH-00025\nCORRELATION ID      : 74cc4626-59e6-41b7-84d4-52d00cd8a0c1\nTIME : 2026-08-29 23:01:23.376188+00:00\nSTATUS : SUCCESS\n============================================================\n\n\n\n============================================================\nEVENT : ASNReceived\n\nPO ID               : PO-000000059\nSHIPMENT ID         : SHIP-000000053\nSUPPLIER ID         : SUP-00208\nWAREHOUSE ID        : WH-00025\nCORRELATION ID      : 74cc4626-59e6-41b7-84d4-52d00cd8a0c1\n\nTIME : 2026-08-29 23:01:23.308411+00:00\n\nSTATUS : SUCCESS\n============================================================\n\n\n",
+        "stderr": "",
+        "table_changes": {},
+        "executed_at": "2026-08-30T04:31:23.981249"
+    },
+    {
+        "event": "SupplierShipmentDelivered",
+        "file": "generators/supplier/supplier_shipment_delivered.py",
+        "status": "SUCCESS",
+        "duration_seconds": 0.45,
+        "stdout": "\n============================================================\nEVENT : SupplierShipmentDelivered\nSHIPMENT ID         : SHIP-000000053\nPO ID               : PO-000000059\nSUPPLIER ID         : SUP-00208\nWAREHOUSE ID        : WH-00025\nCORRELATION ID      : 74cc4626-59e6-41b7-84d4-52d00cd8a0c1\nTIME : 2026-08-29 23:01:24.973498+00:00\nSTATUS : SUCCESS\n============================================================\n\n\n\n============================================================\nEVENT : SupplierShipmentDelivered\n\nSHIPMENT ID         : SHIP-000000053\nPO ID               : PO-000000059\nSUPPLIER ID         : SUP-00208\nWAREHOUSE ID        : WH-00025\n\nCORRELATION ID      : 74cc4626-59e6-41b7-84d4-52d00cd8a0c1\n\nTIME : 2026-08-29 23:01:24.928629+00:00\n\nSTATUS : SUCCESS\n============================================================\n\n\n",
+        "stderr": "",
+        "table_changes": {},
+        "executed_at": "2026-08-30T04:31:25.578888"
+    },
+    {
+        "event": "ReceivingTaskCreated",
+        "file": "generators/warehouse/receiving_task_created_inbound.py",
+        "status": "SUCCESS",
+        "duration_seconds": 0.5,
+        "stdout": "\n============================================================\nEVENT : ReceivingTaskCreated\nTASK ID             : TASK-000000081\nSHIPMENT ID         : SHIP-000000053\nWAREHOUSE ID        : WH-00025\nWORKER ID           : WRK-009701\nEXPECTED QUANTITY   : 116\nDOCK LOCATION       : DOCK-001\nCORRELATION ID      : 74cc4626-59e6-41b7-84d4-52d00cd8a0c1\nTIME : 2026-08-29 23:01:26.630140+00:00\nSTATUS : SUCCESS\n============================================================\n\n",
+        "stderr": "",
+        "table_changes": {
+            "warehouse_tasks": 1
+        },
+        "executed_at": "2026-08-30T04:31:27.232087"
+    },
+    {
+        "event": "ReceivingTaskStarted",
+        "file": "generators/warehouse/task_started.py",
+        "status": "SUCCESS",
+        "duration_seconds": 0.47,
+        "stdout": "\n============================================================\nEVENT : TaskStarted\nTASK ID             : TASK-000000081\nTASK TYPE           : RECEIVING\nWAREHOUSE ID        : WH-00025\nWORKER ID           : WRK-009701\nSTATUS              : STARTED\nCORRELATION ID      : 74cc4626-59e6-41b7-84d4-52d00cd8a0c1\nTIME : 2026-08-29 23:01:28.221186+00:00\nSTATUS : SUCCESS\n============================================================\n\n",
+        "stderr": "",
+        "table_changes": {},
+        "executed_at": "2026-08-30T04:31:28.807130"
+    },
+    {
+        "event": "GoodsReceived",
+        "file": "generators/warehouse/goods_received.py",
+        "status": "SUCCESS",
+        "duration_seconds": 0.88,
+        "stdout": "\n============================================================\nEVENT : GoodsReceived\nTASK ID             : TASK-000000081\nSHIPMENT ID         : SHIP-000000053\nWAREHOUSE ID        : WH-00025\nRECEIVED QUANTITY   : 116\nWORKER ID           : WRK-009701\nCORRELATION ID      : 74cc4626-59e6-41b7-84d4-52d00cd8a0c1\nTIME : 2026-08-29 23:01:30.215372+00:00\nSTATUS : SUCCESS\n============================================================\n\n",
+        "stderr": "",
+        "table_changes": {
+            "inventory": 4,
+            "inventory_transactions": 4
+        },
+        "executed_at": "2026-08-30T04:31:30.804880"
+    },
+    {
+        "event": "StockIncreased",
+        "file": "generators/inventory/stock_increased.py",
+        "status": "SUCCESS",
+        "duration_seconds": 0.45,
+        "stdout": "\n============================================================\nEVENT : StockIncreased\nSHIPMENT ID         : SHIP-000000053\nWAREHOUSE ID        : WH-00025\nQUANTITY            : 116\nCORRELATION ID      : 74cc4626-59e6-41b7-84d4-52d00cd8a0c1\nTIME : 2026-08-29 23:01:31.788887+00:00\nSTATUS : SUCCESS\n============================================================\n\n",
+        "stderr": "",
+        "table_changes": {},
+        "executed_at": "2026-08-30T04:31:32.390847"
+    },
+    {
+        "event": "InventoryPutaway",
+        "file": "generators/inventory/inventory_putaway.py",
+        "status": "SUCCESS",
+        "duration_seconds": 0.71,
+        "stdout": "\n============================================================\nEVENT : InventoryPutaway\nWAREHOUSE ID        : WH-00025\nITEMS               : 4\nCORRELATION ID      : e2016191-de7f-46bc-a63e-17d9a377ca65\nTIME : 2026-08-29 23:01:33.620022+00:00\nSTATUS : SUCCESS\n============================================================\n\n",
+        "stderr": "",
+        "table_changes": {},
+        "executed_at": "2026-08-30T04:31:34.212872"
+    },
+    {
+        "event": "OrderCreated",
+        "file": "generators/order/order_created.py",
+        "status": "SUCCESS",
+        "duration_seconds": 0.48,
+        "stdout": "\n============================================================\nEVENT : OrderCreated\nORDER ID            : ORD-000000042\nCUSTOMER ID         : CUST003110\nWAREHOUSE ID        : WH-00025\nSTATUS              : CREATED\nCORRELATION ID      : 02b437d4-138d-4e3e-a662-13fc30553c13\nTIME : 2026-08-29 23:01:35.220824+00:00\nSTATUS : SUCCESS\n============================================================\n\n",
+        "stderr": "",
+        "table_changes": {
+            "orders": 1
+        },
+        "executed_at": "2026-08-30T04:31:35.832416"
+    },
+    {
+        "event": "OrderItemCreated",
+        "file": "generators/order/order_item_created.py",
+        "status": "SUCCESS",
+        "duration_seconds": 0.52,
+        "stdout": "\n============================================================\nEVENT : OrderItemCreated\nORDER ID            : ORD-000000042\nWAREHOUSE ID        : WH-00025\nITEMS               : 3\nQUANTITY            : 19\nAMOUNT              : 445.5\nCORRELATION ID      : 02b437d4-138d-4e3e-a662-13fc30553c13\nTIME : 2026-08-29 23:01:37.174636+00:00\nSTATUS : SUCCESS\n============================================================\n\n",
+        "stderr": "",
+        "table_changes": {
+            "order_items": 3
+        },
+        "executed_at": "2026-08-30T04:31:37.765498"
+    },
+    {
+        "event": "InventoryAllocationCreated",
+        "file": "generators/inventory/inventory_allocation_created.py",
+        "status": "SUCCESS",
+        "duration_seconds": 0.79,
+        "stdout": "\n============================================================\nEVENT : InventoryAllocationCreated\nORDER ID            : ORD-000000042\nWAREHOUSE ID        : WH-00025\nALLOCATION COUNT    : 3\nCORRELATION ID      : 02b437d4-138d-4e3e-a662-13fc30553c13\nTIME : 2026-08-29 23:01:39.088896+00:00\nSTATUS : SUCCESS\n============================================================\n\n",
+        "stderr": "",
+        "table_changes": {
+            "inventory_allocations": 3
+        },
+        "executed_at": "2026-08-30T04:31:39.686514"
+    },
+    {
+        "event": "InventoryReserved",
+        "file": "generators/inventory/inventory_reserved.py",
+        "status": "FAILED",
+        "duration_seconds": 0.41,
+        "stdout": "\n============================================================\nEVENT : InventoryReserved\nERROR : \nNo ALLOCATED inventory found for order.\n\nORDER:\nORD-000000042\n\nExpected state:\nInventoryAllocationCreated -> ALLOCATED\nInventoryReserved -> RESERVED\n\nTIME : 2026-08-29 23:01:40.931715+00:00\nSTATUS : FAILED\n============================================================\n\n",
+        "stderr": "Traceback (most recent call last):\n  File \"C:\\Users\\rohit\\PycharmProjects\\daemon-supply-chain\\simulator\\generators\\inventory\\inventory_reserved.py\", line 583, in <module>\n    generate_inventory_reserved(\n  File \"C:\\Users\\rohit\\PycharmProjects\\daemon-supply-chain\\simulator\\generators\\inventory\\inventory_reserved.py\", line 113, in generate_inventory_reserved\n    raise Exception(\nException: \nNo ALLOCATED inventory found for order.\n\nORDER:\nORD-000000042\n\nExpected state:\nInventoryAllocationCreated -> ALLOCATED\nInventoryReserved -> RESERVED\n\n",
+        "table_changes": {},
+        "executed_at": "2026-08-30T04:31:41.505829"
+    }
+]

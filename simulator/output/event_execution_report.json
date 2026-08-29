@@ -1,0 +1,12 @@
+[
+    {
+        "event": "PurchaseOrderCreated",
+        "file": "generators/purchase_order/purchase_order_created.py",
+        "status": "FAILED",
+        "duration_seconds": 0.16,
+        "stdout": "",
+        "stderr": "C:\\Users\\rohit\\AppData\\Local\\Programs\\Python\\Python312\\python.exe: can't open file 'C:\\\\Users\\\\rohit\\\\PycharmProjects\\\\daemon-supply-chain\\\\generators/purchase_order/purchase_order_created.py': [Errno 2] No such file or directory\n",
+        "table_changes": {},
+        "executed_at": "2026-08-30T01:19:24.592553"
+    }
+]

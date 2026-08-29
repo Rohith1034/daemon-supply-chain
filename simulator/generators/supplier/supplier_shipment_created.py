@@ -1,142 +1,425 @@
-from services.shipment_service import ShipmentService
-from services.event_service import EventService
-from services.id_service import IDService
+from datetime import datetime, timezone, timedelta
+import random
+
+
+from core.db import Database
+
+from core.ids import (
+    next_shipment_id
+)
+
+from core.outbox import publish_event
+
+from core.logger import (
+    log_event_success,
+    log_event_failure
+)
+
+
+EVENT_NAME = "SupplierShipmentCreated"
 
 
 
-class SupplierShipmentCreatedGenerator:
+def create_supplier_shipment(count=1):
 
 
-    def __init__(self):
-
-        self.shipment_service = ShipmentService()
-
-        self.event_service = EventService()
+    created_shipments = []
 
 
 
-    def generate(
-        self,
-        shipment_id,
-        items
-    ):
+    for _ in range(count):
 
 
-        #
-        # 1.
-        # Add shipment products
-        #
-
-        count = (
-
-            self.shipment_service
-            .add_shipment_items(
-
-                shipment_id,
-
-                items
-
-            )
-
-        )
+        with Database() as db:
 
 
-        #
-        # 2.
-        # Change status
-        #
+            # -------------------------------------------------
+            # Find APPROVED PO without existing shipment
+            # -------------------------------------------------
 
-        self.shipment_service.update_status(
+            po = db.fetch_one(
 
-            shipment_id,
+                """
 
-            "IN_TRANSIT"
+                SELECT po.*
 
-        )
+                FROM purchase_orders po
 
 
-        #
-        # 3.
-        # Correlation
+                LEFT JOIN shipments s
 
-        correlation_id = (
+                ON po.po_id = s.po_id
 
-            IDService
-            .generate_correlation_id(
 
-                "SHIP",
+                WHERE po.po_status='APPROVED'
 
-                shipment_id
+
+                AND s.po_id IS NULL
+
+
+                ORDER BY po.created_at
+
+
+                LIMIT 1
+
+                """
 
             )
 
+
+
+            if not po:
+
+                raise Exception(
+                    "No approved PO available without shipment"
+                )
+
+
+
+            po_id = po["po_id"]
+
+
+
+            # -------------------------------------------------
+            # Generate shipment ID
+            # -------------------------------------------------
+
+            shipment_id = next_shipment_id(db)
+
+
+
+            shipment_date = datetime.now(
+                timezone.utc
+            )
+
+
+            expected_delivery = (
+
+                shipment_date +
+
+                timedelta(
+                    days=random.randint(2,7)
+                )
+
+            )
+
+
+
+            # -------------------------------------------------
+            # Fetch PO items
+            # -------------------------------------------------
+
+            po_items = db.fetch_all(
+
+                """
+
+                SELECT *
+
+                FROM purchase_order_items
+
+                WHERE po_id=%s
+
+                """,
+
+                (
+                    po_id,
+                )
+
+            )
+
+
+
+            if not po_items:
+
+                raise Exception(
+                    "PO has no items"
+                )
+
+
+
+            total_quantity = sum(
+
+                item["ordered_quantity"]
+
+                for item in po_items
+
+            )
+
+
+            total_skus = len(po_items)
+
+
+
+            # -------------------------------------------------
+            # Insert shipment
+            # -------------------------------------------------
+
+            db.execute(
+
+                """
+
+                INSERT INTO shipments
+                (
+                shipment_id,
+                po_id,
+                supplier_id,
+                warehouse_id,
+                shipment_status,
+                shipment_date,
+                expected_delivery,
+                total_skus,
+                total_quantity,
+                correlation_id
+                )
+
+                VALUES
+
+                (
+
+                    %s,%s,%s,%s,%s,
+                    %s,%s,%s,%s,%s
+
+                )
+
+                """,
+
+                (
+
+                    shipment_id,
+
+                    po_id,
+
+                    po["supplier_id"],
+
+                    po["warehouse_id"],
+
+                    "CREATED",
+
+                    shipment_date,
+
+                    expected_delivery,
+
+                    total_skus,
+
+                    total_quantity,
+
+                    str(po["correlation_id"])
+
+                )
+
+            )
+
+
+
+
+            # -------------------------------------------------
+            # Insert shipment items
+            # -------------------------------------------------
+
+            for item in po_items:
+
+
+                db.execute(
+
+                    """
+
+                    INSERT INTO shipment_items
+
+                    (
+
+                        shipment_id,
+
+                        product_id,
+
+                        shipped_quantity
+
+                    )
+
+
+                    VALUES
+
+                    (%s,%s,%s)
+
+                    """,
+
+                    (
+
+                        shipment_id,
+
+                        item["product_id"],
+
+                        item["ordered_quantity"]
+
+                    )
+
+                )
+
+
+
+
+            # -------------------------------------------------
+            # Event payload
+            # -------------------------------------------------
+
+            payload = {
+
+
+                "event_type":
+                    EVENT_NAME,
+
+
+                "shipment_id":
+                    shipment_id,
+
+
+                "po_id":
+                    po_id,
+
+
+                "supplier_id":
+                    po["supplier_id"],
+
+
+                "warehouse_id":
+                    po["warehouse_id"],
+
+
+                "shipment_status":
+                    "CREATED",
+
+
+                "total_skus":
+                    total_skus,
+
+
+                "total_quantity":
+                    total_quantity,
+
+
+                "correlation_id":
+                    str(
+                        po["correlation_id"]
+                    )
+
+            }
+
+
+
+
+            # -------------------------------------------------
+            # Outbox
+            # -------------------------------------------------
+
+            publish_event(
+
+                db=db,
+
+                event_type=EVENT_NAME,
+
+                aggregate_type="SHIPMENT",
+
+                aggregate_id=shipment_id,
+
+                correlation_id=str(
+                    po["correlation_id"]
+                ),
+
+                payload=payload
+
+            )
+
+
+
+
+            # -------------------------------------------------
+            # Logging
+            # -------------------------------------------------
+
+            log_event_success(
+
+                EVENT_NAME,
+
+                {
+
+
+                    "shipment_id":
+                        shipment_id,
+
+
+                    "po_id":
+                        po_id,
+
+
+                    "supplier_id":
+                        po["supplier_id"],
+
+
+                    "warehouse_id":
+                        po["warehouse_id"],
+
+
+                    "quantity":
+                        total_quantity,
+
+
+                    "correlation_id":
+                        str(
+                            po["correlation_id"]
+                        )
+
+                }
+
+            )
+
+
+
+            created_shipments.append(
+
+                {
+
+                    "shipment_id":
+                        shipment_id,
+
+                    "po_id":
+                        po_id
+
+                }
+
+            )
+
+
+
+    return created_shipments
+
+
+
+
+
+if __name__ == "__main__":
+
+
+    try:
+
+
+        result = create_supplier_shipment(
+            count=1
         )
 
 
-        #
-        # 4.
-        # Event Payload
-
-        payload = {
-
-
-            "shipment_id":
-
-                shipment_id,
-
-
-            "shipment_status":
-
-                "IN_TRANSIT",
-
-
-            "items_count":
-
-                count
-
-
-        }
+        print(result)
 
 
 
-        #
-        # 5.
-        # Outbox
-
-        self.event_service.publish_event(
-
-            event_type=
-                "SupplierShipmentCreated",
+    except Exception as e:
 
 
-            aggregate_type=
-                "SHIPMENT",
+        log_event_failure(
 
+            EVENT_NAME,
 
-            aggregate_id=
-                shipment_id,
-
-
-            correlation_id=
-                correlation_id,
-
-
-            payload=
-                payload
+            e
 
         )
 
 
-        return {
-
-
-            "event":
-
-                "SupplierShipmentCreated",
-
-
-            "shipment_id":
-
-                shipment_id
-
-        }
+        raise
