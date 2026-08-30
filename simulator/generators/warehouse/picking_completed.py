@@ -286,24 +286,26 @@ REQUIRED:
         db.execute(
             """
             UPDATE inventory
-
             SET
-
                 on_hand_quantity =
                     on_hand_quantity - %s,
 
                 reserved_quantity =
                     reserved_quantity - %s,
 
-                inventory_status='PICKED',
+                inventory_status =
+                    CASE
+                        WHEN on_hand_quantity - %s = 0
+                            THEN 'OUT_OF_STOCK'
+                        ELSE 'RECEIVED'
+                    END,
 
                 last_updated_at=%s
 
-
             WHERE inventory_id=%s
-
             """,
             (
+                quantity,
                 quantity,
                 quantity,
                 now,
