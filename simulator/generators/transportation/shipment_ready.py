@@ -33,7 +33,7 @@ def generate_shipment_ready():
 
             WHERE package_status='PACKED'
 
-            ORDER BY packed_at
+            ORDER BY packed_at DESC
 
             LIMIT 1
             """

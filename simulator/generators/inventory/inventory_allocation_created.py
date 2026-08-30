@@ -478,6 +478,18 @@ def generate_inventory_allocation_created(order_id):
 
             )
 
+            db.execute(
+                """
+                UPDATE orders
+                SET
+                    order_status='ALLOCATED'
+                WHERE order_id=%s
+                """,
+                (
+                    order_id,
+                )
+            )
+
 
 
         # --------------------------------------------------

@@ -317,7 +317,19 @@ def generate_order_item_created():
 
         )
 
-
+        db.execute(
+            """
+            UPDATE orders
+            SET
+                order_status='CONFIRMED',
+                confirmed_at=%s
+            WHERE order_id=%s
+            """,
+            (
+                now,
+                order_id
+            )
+        )
 
         # -------------------------------------------------
         # Publish Event

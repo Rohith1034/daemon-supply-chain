@@ -73,6 +73,26 @@ def generate_packing_completed():
             timezone.utc
         )
 
+        order_record = db.fetch_one(
+            """
+            SELECT
+                order_id
+            FROM inventory_allocations
+            WHERE correlation_id=%s
+            LIMIT 1
+            """,
+            (
+                correlation_id,
+            )
+        )
+
+        if not order_record:
+            raise Exception(
+                "Order not found for packing task"
+            )
+
+        order_id = order_record["order_id"]
+
 
 
         # ------------------------------------
@@ -92,7 +112,7 @@ def generate_packing_completed():
             """,
 
             (
-                task["shipment_id"],
+                order_id,
             )
 
         )
@@ -306,7 +326,17 @@ def generate_packing_completed():
 
         )
 
-
+        db.execute(
+            """
+            UPDATE orders
+            SET
+                order_status='PACKED'
+            WHERE order_id=%s
+            """,
+            (
+                order_id,
+            )
+        )
 
         # ------------------------------------
         # Free worker

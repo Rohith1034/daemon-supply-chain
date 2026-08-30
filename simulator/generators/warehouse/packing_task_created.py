@@ -21,9 +21,9 @@ def generate_packing_task_created():
     with Database() as db:
 
 
-        # -------------------------------------------------
+        # =================================================
         # Find completed picking task
-        # -------------------------------------------------
+        # =================================================
 
         picking_task = db.fetch_one(
 
@@ -49,6 +49,22 @@ def generate_packing_task_created():
             AND status='COMPLETED'
 
 
+            AND NOT EXISTS
+
+            (
+
+                SELECT 1
+
+                FROM warehouse_tasks wt
+
+                WHERE wt.task_type='PACKING'
+
+                AND wt.picking_task_id =
+                    warehouse_tasks.task_id
+
+            )
+
+
             ORDER BY task_completed_at
 
 
@@ -63,17 +79,19 @@ def generate_packing_task_created():
         )
 
 
-
         if not picking_task:
-
 
             raise Exception(
 
-                "No completed picking task found"
+                "No completed picking task available for packing"
 
             )
 
 
+
+        # -------------------------------------------------
+        # Extract details
+        # -------------------------------------------------
 
         picking_task_id = picking_task["task_id"]
 
@@ -89,7 +107,6 @@ def generate_packing_task_created():
 
         if not order_id:
 
-
             raise Exception(
 
                 "Picking task missing order_id"
@@ -98,9 +115,9 @@ def generate_packing_task_created():
 
 
 
-        # -------------------------------------------------
+        # =================================================
         # Duplicate packing check
-        # -------------------------------------------------
+        # =================================================
 
         existing = db.fetch_one(
 
@@ -117,7 +134,7 @@ def generate_packing_task_created():
             WHERE task_type='PACKING'
 
 
-            AND order_id=%s
+            AND picking_task_id=%s
 
 
             AND status IN
@@ -140,7 +157,7 @@ def generate_packing_task_created():
 
             (
 
-                order_id,
+                picking_task_id,
 
             )
 
@@ -157,8 +174,16 @@ def generate_packing_task_created():
 
                 Packing task already exists
 
-                Task:
+
+                Picking Task:
+
+                {picking_task_id}
+
+
+                Packing Task:
+
                 {existing['task_id']}
+
 
                 """
 
@@ -166,9 +191,9 @@ def generate_packing_task_created():
 
 
 
-        # -------------------------------------------------
-        # Find packing worker
-        # -------------------------------------------------
+        # =================================================
+        # Find available packer
+        # =================================================
 
         worker = db.fetch_one(
 
@@ -188,13 +213,16 @@ def generate_packing_task_created():
             AND current_status='AVAILABLE'
 
 
-            AND role IN
+            AND employment_status='Active'
+
+
+            AND LOWER(role) IN
 
             (
 
-                'PACKER',
+                'packer',
 
-                'WAREHOUSE_ASSOCIATE'
+                'warehouse associate'
 
             )
 
@@ -225,7 +253,15 @@ def generate_packing_task_created():
 
             raise Exception(
 
-                "No packing worker available"
+                f"""
+
+                No packing worker available
+
+                Warehouse:
+
+                {warehouse_id}
+
+                """
 
             )
 
@@ -235,15 +271,18 @@ def generate_packing_task_created():
 
 
 
-        # -------------------------------------------------
-        # Create task
-        # -------------------------------------------------
+        # =================================================
+        # Create packing task
+        # =================================================
 
         task_id = next_task_id(db)
 
 
+
         now = datetime.now(
+
             timezone.utc
+
         )
 
 
@@ -280,6 +319,8 @@ def generate_packing_task_created():
 
                 product_id,
 
+                picking_task_id,
+
                 location,
 
                 quantity,
@@ -314,7 +355,7 @@ def generate_packing_task_created():
 
                 %s,%s,%s,%s,%s,%s,
 
-                %s,%s,%s,%s
+                %s,%s,%s,%s,%s
 
             )
 
@@ -332,6 +373,8 @@ def generate_packing_task_created():
                 order_id,
 
                 product_id,
+
+                picking_task_id,
 
                 picking_task["location"],
 
@@ -361,9 +404,9 @@ def generate_packing_task_created():
 
 
 
-        # -------------------------------------------------
+        # =================================================
         # Lock worker
-        # -------------------------------------------------
+        # =================================================
 
         db.execute(
 
@@ -389,9 +432,9 @@ def generate_packing_task_created():
 
 
 
-        # -------------------------------------------------
-        # Event
-        # -------------------------------------------------
+        # =================================================
+        # Publish Event
+        # =================================================
 
         payload = {
 
@@ -406,7 +449,6 @@ def generate_packing_task_created():
                 now.isoformat(),
 
 
-
             "packingTask":
 
             {
@@ -415,6 +457,11 @@ def generate_packing_task_created():
                 "taskId":
 
                     task_id,
+
+
+                "pickingTaskId":
+
+                    picking_task_id,
 
 
                 "orderId":
@@ -448,7 +495,6 @@ def generate_packing_task_created():
 
 
             },
-
 
 
             "correlationId":
@@ -490,14 +536,14 @@ def generate_packing_task_created():
                     task_id,
 
 
+                "picking_task_id":
+
+                    picking_task_id,
+
+
                 "order_id":
 
                     order_id,
-
-
-                "product_id":
-
-                    product_id,
 
 
                 "warehouse_id":
@@ -538,7 +584,6 @@ if __name__=="__main__":
 
 
     try:
-
 
         generate_packing_task_created()
 

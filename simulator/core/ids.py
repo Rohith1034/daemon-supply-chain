@@ -247,3 +247,20 @@ def next_tracking_id(db):
     )
 
     return f"TRACK-{value['id']:09d}"
+
+
+def next_fulfillment_id(db):
+
+    return next_id(
+        db,
+        "fulfillment_id_seq",
+        "FUL"
+    )
+
+def next_package_id(db):
+
+    return next_id(
+        db,
+        "package_id_seq",
+        "PKG"
+    )

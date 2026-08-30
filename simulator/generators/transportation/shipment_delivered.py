@@ -18,9 +18,9 @@ def generate_shipment_delivered():
     with Database() as db:
 
 
-        # ------------------------------------
-        # Find IN_TRANSIT shipment
-        # ------------------------------------
+        # ==================================================
+        # Find latest IN_TRANSIT shipment
+        # ==================================================
 
         shipment = db.fetch_one(
             """
@@ -30,7 +30,7 @@ def generate_shipment_delivered():
                 correlation_id
             FROM shipments
             WHERE shipment_status='IN_TRANSIT'
-            ORDER BY created_at
+            ORDER BY created_at DESC
             LIMIT 1
             """
         )
@@ -41,7 +41,6 @@ def generate_shipment_delivered():
             raise Exception(
                 "No IN_TRANSIT shipment found"
             )
-
 
 
         shipment_id = shipment["shipment_id"]
@@ -59,9 +58,9 @@ def generate_shipment_delivered():
 
 
 
-        # ------------------------------------
-        # Get transportation details
-        # ------------------------------------
+        # ==================================================
+        # Transportation Details
+        # ==================================================
 
         transportation = db.fetch_one(
             """
@@ -86,7 +85,6 @@ def generate_shipment_delivered():
             )
 
 
-
         vehicle_id = transportation["vehicle_id"]
 
         driver_id = transportation["driver_id"]
@@ -95,9 +93,9 @@ def generate_shipment_delivered():
 
 
 
-        # ------------------------------------
-        # Find tracking
-        # ------------------------------------
+        # ==================================================
+        # Tracking
+        # ==================================================
 
         tracking = db.fetch_one(
             """
@@ -126,9 +124,9 @@ def generate_shipment_delivered():
 
 
 
-        # ------------------------------------
-        # Update shipment
-        # ------------------------------------
+        # ==================================================
+        # Update Shipment
+        # ==================================================
 
         db.execute(
             """
@@ -153,9 +151,9 @@ def generate_shipment_delivered():
 
 
 
-        # ------------------------------------
-        # Update tracking
-        # ------------------------------------
+        # ==================================================
+        # Update Tracking
+        # ==================================================
 
         db.execute(
             """
@@ -175,11 +173,80 @@ def generate_shipment_delivered():
             )
         )
 
+        # ==================================================
+        # Find Related Order
+        # ==================================================
+
+        order = db.fetch_one(
+            """
+            SELECT
+                order_id
+
+            FROM orders
+
+            WHERE correlation_id=%s
+
+            ORDER BY created_at DESC
+
+            LIMIT 1
+            """,
+            (
+                correlation_id,
+            )
+        )
+
+        # ==================================================
+        # Fallback:
+        # Shipment has no order mapping currently
+        # ==================================================
+
+        if not order:
+            order = db.fetch_one(
+                """
+                SELECT
+                    order_id
+
+                FROM orders
+
+                WHERE warehouse_id=%s
+
+                AND order_status='PACKED'
+
+                ORDER BY created_at DESC
+
+                LIMIT 1
+
+                """,
+                (
+                    warehouse_id,
+                )
+            )
+
+        # ==================================================
+        # Update Order Status
+        # ==================================================
+
+        if order:
+            db.execute(
+                """
+                UPDATE orders
+
+                SET
+
+                    order_status='DELIVERED'
+
+                WHERE order_id=%s
+
+                """,
+                (
+                    order["order_id"],
+                )
+            )
 
 
-        # ------------------------------------
-        # Event payload
-        # ------------------------------------
+        # ==================================================
+        # Event Payload
+        # ==================================================
 
         payload = {
 
@@ -193,7 +260,6 @@ def generate_shipment_delivered():
 
 
             "shipment":
-
             {
 
                 "shipmentId":
@@ -237,9 +303,9 @@ def generate_shipment_delivered():
 
 
 
-        # ------------------------------------
+        # ==================================================
         # Outbox
-        # ------------------------------------
+        # ==================================================
 
         publish_event(
 
@@ -259,9 +325,9 @@ def generate_shipment_delivered():
 
 
 
-        # ------------------------------------
-        # Output
-        # ------------------------------------
+        # ==================================================
+        # Logging
+        # ==================================================
 
         log_event_success(
 
@@ -293,6 +359,12 @@ def generate_shipment_delivered():
                     "DELIVERED",
 
 
+                "order_id":
+                    order["order_id"]
+                    if order
+                    else None,
+
+
                 "correlation_id":
                     correlation_id
 
@@ -315,8 +387,11 @@ if __name__ == "__main__":
 
 
         log_event_failure(
+
             EVENT_NAME,
+
             e
+
         )
 
         raise
