@@ -222,32 +222,6 @@ def next_adjustment_id(db):
 
     return f"ADJ-{int(row['id']):09d}"
 
-def next_loading_id(db):
-
-    value = db.fetch_one(
-        """
-        SELECT 
-            COUNT(*) + 1 AS id
-        FROM shipment_loading_events
-        """
-    )
-
-    return f"LOAD-{value['id']:09d}"
-
-
-
-def next_tracking_id(db):
-
-    value = db.fetch_one(
-        """
-        SELECT 
-            COUNT(*) + 1 AS id
-        FROM shipment_tracking
-        """
-    )
-
-    return f"TRACK-{value['id']:09d}"
-
 
 def next_fulfillment_id(db):
 
@@ -263,4 +237,113 @@ def next_package_id(db):
         db,
         "package_id_seq",
         "PKG"
+    )
+
+import re
+
+
+# =====================================================
+# GENERIC DATABASE-BACKED NUMERIC ID GENERATOR
+# =====================================================
+
+def _next_id_from_table(
+    db,
+    table_name,
+    column_name,
+    prefix,
+    width=9
+):
+    """
+    Generate the next identifier from the existing rows
+    in PostgreSQL.
+
+    Example:
+
+        LOAD-000000001
+        LOAD-000000002
+
+    The database is treated as the source of truth, so the
+    value does not reset when the Python process restarts.
+    """
+
+    query = f"""
+        SELECT
+            {column_name}
+        FROM {table_name}
+        WHERE {column_name} LIKE %s
+        ORDER BY {column_name} DESC
+        LIMIT 1
+        FOR UPDATE
+    """
+
+    last_id = db.fetch_one(
+        query,
+        (
+            f"{prefix}-%",
+        )
+    )
+
+    if not last_id:
+
+        next_number = 1
+
+    else:
+
+        current_id = last_id[
+            column_name
+        ]
+
+        match = re.search(
+            rf"{re.escape(prefix)}-(\d+)$",
+            current_id
+        )
+
+        if not match:
+
+            next_number = 1
+
+        else:
+
+            next_number = (
+                int(match.group(1)) + 1
+            )
+
+    return (
+        f"{prefix}-{next_number:0{width}d}"
+    )
+
+
+# =====================================================
+# LOADING ID
+# =====================================================
+
+def next_loading_id(db):
+    """
+    Generate the next outbound loading identifier.
+    """
+
+    return _next_id_from_table(
+        db=db,
+        table_name="outbound_shipment_loading_events",
+        column_name="loading_id",
+        prefix="LOAD",
+        width=9
+    )
+
+
+# =====================================================
+# TRACKING ID
+# =====================================================
+
+def next_tracking_id(db):
+    """
+    Generate the next outbound tracking identifier.
+    """
+
+    return _next_id_from_table(
+        db=db,
+        table_name="outbound_shipment_tracking",
+        column_name="tracking_id",
+        prefix="TRACK",
+        width=9
     )

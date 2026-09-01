@@ -49,10 +49,6 @@ DB_CONFIG = {
 
 # =====================================================
 # STATIC EVENT FLOW
-#
-# Picking and packing task events are intentionally
-# NOT placed here because they must be processed
-# one task at a time.
 # =====================================================
 
 INBOUND_FLOW = [
@@ -138,6 +134,35 @@ OUTBOUND_INITIAL_FLOW = [
 ]
 
 
+# =====================================================
+# DYNAMIC EVENT GENERATORS
+# =====================================================
+
+PICKING_STARTED_FILE = (
+    "generators/warehouse/task_started.py"
+)
+
+PICKING_COMPLETED_FILE = (
+    "generators/warehouse/picking_completed.py"
+)
+
+PACKING_CREATED_FILE = (
+    "generators/warehouse/packing_task_created.py"
+)
+
+PACKING_STARTED_FILE = (
+    "generators/warehouse/task_started.py"
+)
+
+PACKING_COMPLETED_FILE = (
+    "generators/warehouse/packing_completed.py"
+)
+
+
+# =====================================================
+# TRANSPORTATION EVENTS
+# =====================================================
+
 TRANSPORTATION_FLOW = [
 
     (
@@ -165,31 +190,6 @@ TRANSPORTATION_FLOW = [
         "generators/transportation/shipment_delivered.py"
     )
 ]
-
-
-# =====================================================
-# GENERATOR PATHS FOR DYNAMIC EVENTS
-# =====================================================
-
-PICKING_STARTED_FILE = (
-    "generators/warehouse/task_started.py"
-)
-
-PICKING_COMPLETED_FILE = (
-    "generators/warehouse/picking_completed.py"
-)
-
-PACKING_CREATED_FILE = (
-    "generators/warehouse/packing_task_created.py"
-)
-
-PACKING_STARTED_FILE = (
-    "generators/warehouse/task_started.py"
-)
-
-PACKING_COMPLETED_FILE = (
-    "generators/warehouse/packing_completed.py"
-)
 
 
 # =====================================================
@@ -235,10 +235,12 @@ def get_latest_order_id():
 
 
 # =====================================================
-# ALLOCATIONS FOR EXACT ORDER
+# ALLOCATIONS
 # =====================================================
 
-def get_latest_allocation_ids(order_id):
+def get_latest_allocation_ids(
+    order_id
+):
 
     with get_db() as conn:
 
@@ -272,10 +274,12 @@ def get_latest_allocation_ids(order_id):
 
 
 # =====================================================
-# PICKING TASKS FOR EXACT ORDER
+# PICKING TASKS
 # =====================================================
 
-def get_picking_task_ids(order_id):
+def get_picking_task_ids(
+    order_id
+):
 
     with get_db() as conn:
 
@@ -310,73 +314,7 @@ def get_picking_task_ids(order_id):
 
 
 # =====================================================
-# PACKING TASKS FOR EXACT ORDER
-# =====================================================
-
-def get_packing_task_ids(order_id):
-
-    with get_db() as conn:
-
-        with conn.cursor() as cur:
-
-            cur.execute(
-                """
-                SELECT
-                    task_id
-                FROM warehouse_tasks
-                WHERE task_type='PACKING'
-                  AND order_id=%s
-                ORDER BY created_at ASC
-                """,
-                (
-                    order_id,
-                )
-            )
-
-            rows = cur.fetchall()
-
-    return [
-        row[0]
-        for row in rows
-    ]
-
-
-# =====================================================
-# PICKING TASK STATUS
-# =====================================================
-
-def get_task_status(task_id):
-
-    with get_db() as conn:
-
-        with conn.cursor() as cur:
-
-            cur.execute(
-                """
-                SELECT
-                    status
-                FROM warehouse_tasks
-                WHERE task_id=%s
-                LIMIT 1
-                """,
-                (
-                    task_id,
-                )
-            )
-
-            row = cur.fetchone()
-
-    if not row:
-
-        raise Exception(
-            f"Task not found: {task_id}"
-        )
-
-    return row[0]
-
-
-# =====================================================
-# PACKING TASKS CREATED FOR EXACT PICKING TASK
+# PACKING TASK FOR PICKING TASK
 # =====================================================
 
 def get_packing_task_for_picking_task(
@@ -412,10 +350,12 @@ def get_packing_task_for_picking_task(
 
 
 # =====================================================
-# CHECK ORDER PICKING COMPLETION
+# TASK STATUS
 # =====================================================
 
-def all_picking_tasks_completed(order_id):
+def get_task_status(
+    task_id
+):
 
     with get_db() as conn:
 
@@ -423,26 +363,232 @@ def all_picking_tasks_completed(order_id):
 
             cur.execute(
                 """
-                SELECT COUNT(*)
+                SELECT
+                    status
                 FROM warehouse_tasks
-                WHERE task_type='PICKING'
-                  AND order_id=%s
-                  AND status <> 'COMPLETED'
+                WHERE task_id=%s
+                LIMIT 1
+                """,
+                (
+                    task_id,
+                )
+            )
+
+            row = cur.fetchone()
+
+    if not row:
+
+        raise Exception(
+            f"Task not found: {task_id}"
+        )
+
+    return row[0]
+
+
+# =====================================================
+# ALL PACKED PACKAGES FOR EXACT ORDER
+# =====================================================
+
+def get_packed_package_ids(
+    order_id
+):
+    """
+    Return every PACKED package belonging to the
+    supplied order.
+
+    Each package will receive its own outbound
+    shipment because outbound_shipments.package_id
+    represents one package.
+    """
+
+    with get_db() as conn:
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                SELECT
+                    package_id
+                FROM packages
+                WHERE order_id=%s
+                  AND package_status='PACKED'
+                ORDER BY packed_at ASC,
+                         package_id ASC
                 """,
                 (
                     order_id,
                 )
             )
 
-            remaining = cur.fetchone()[0]
+            rows = cur.fetchall()
 
-    return remaining == 0
+    if not rows:
+
+        raise Exception(
+            f"No PACKED packages found "
+            f"for order {order_id}"
+        )
+
+    return [
+        row[0]
+        for row in rows
+    ]
+
+
+# =====================================================
+# OUTBOUND SHIPMENT FOR EXACT PACKAGE
+# =====================================================
+
+def get_outbound_shipment_for_package(
+    package_id
+):
+
+    with get_db() as conn:
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                SELECT
+                    shipment_id
+                FROM outbound_shipments
+                WHERE package_id=%s
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (
+                    package_id,
+                )
+            )
+
+            row = cur.fetchone()
+
+    if not row:
+
+        return None
+
+    return row[0]
+
+
+# =====================================================
+# OUTBOUND FULFILLMENT FOR EXACT SHIPMENT
+# =====================================================
+
+def get_outbound_fulfillment_id(
+    shipment_id
+):
+
+    with get_db() as conn:
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                SELECT
+                    fulfillment_id
+                FROM outbound_shipments
+                WHERE shipment_id=%s
+                LIMIT 1
+                """,
+                (
+                    shipment_id,
+                )
+            )
+
+            row = cur.fetchone()
+
+    if not row:
+
+        return None
+
+    return row[0]
+
+
+# =====================================================
+# TRANSPORTATION DETAILS
+# =====================================================
+
+def get_outbound_transportation(
+    shipment_id
+):
+
+    with get_db() as conn:
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                SELECT
+                    vehicle_id,
+                    trailer_id,
+                    driver_id
+                FROM outbound_shipment_transportation
+                WHERE shipment_id=%s
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (
+                    shipment_id,
+                )
+            )
+
+            row = cur.fetchone()
+
+    if not row:
+
+        return None
+
+    return {
+        "vehicle_id": row[0],
+        "trailer_id": row[1],
+        "driver_id": row[2]
+    }
+
+
+# =====================================================
+# TRACKING DETAILS
+# =====================================================
+
+def get_outbound_tracking_id(
+    shipment_id
+):
+
+    with get_db() as conn:
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                SELECT
+                    tracking_id
+                FROM outbound_shipment_tracking
+                WHERE shipment_id=%s
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (
+                    shipment_id,
+                )
+            )
+
+            row = cur.fetchone()
+
+    if not row:
+
+        return None
+
+    return row[0]
+
 
 # =====================================================
 # TABLE SNAPSHOT CONFIGURATION
 # =====================================================
 
 TABLE_CONFIG = {
+
+    # ------------------------------
+    # Inbound
+    # ------------------------------
 
     "purchase_orders": {
         "order_by": "created_at",
@@ -465,7 +611,12 @@ TABLE_CONFIG = {
     },
 
     "shipment_transportation": {
-        "order_by": "created_at",
+        "order_by": "assigned_at",
+        "limit": 20
+    },
+
+    "shipment_loading_events": {
+        "order_by": "loaded_at",
         "limit": 20
     },
 
@@ -474,10 +625,18 @@ TABLE_CONFIG = {
         "limit": 20
     },
 
+    # ------------------------------
+    # Warehouse
+    # ------------------------------
+
     "warehouse_tasks": {
         "order_by": "created_at",
         "limit": 100
     },
+
+    # ------------------------------
+    # Inventory
+    # ------------------------------
 
     "inventory": {
         "order_by": "inventory_id",
@@ -486,16 +645,6 @@ TABLE_CONFIG = {
 
     "inventory_transactions": {
         "order_by": "created_at",
-        "limit": 100
-    },
-
-    "orders": {
-        "order_by": "created_at",
-        "limit": 50
-    },
-
-    "order_items": {
-        "order_by": "order_id",
         "limit": 100
     },
 
@@ -509,8 +658,60 @@ TABLE_CONFIG = {
         "limit": 100
     },
 
+    # ------------------------------
+    # Orders
+    # ------------------------------
+
+    "orders": {
+        "order_by": "created_at",
+        "limit": 50
+    },
+
+    "order_items": {
+        "order_by": "order_id",
+        "limit": 100
+    },
+
+    # ------------------------------
+    # Packages
+    # ------------------------------
+
     "packages": {
         "order_by": "packed_at",
+        "limit": 100
+    },
+
+    "package_items": {
+        "order_by": "package_id",
+        "limit": 100
+    },
+
+    # ------------------------------
+    # Outbound fulfillment
+    # ------------------------------
+
+    "outbound_fulfillment": {
+        "order_by": "created_at",
+        "limit": 50
+    },
+
+    "outbound_shipments": {
+        "order_by": "created_at",
+        "limit": 100
+    },
+
+    "outbound_shipment_transportation": {
+        "order_by": "created_at",
+        "limit": 100
+    },
+
+    "outbound_shipment_loading_events": {
+        "order_by": "loaded_at",
+        "limit": 100
+    },
+
+    "outbound_shipment_tracking": {
+        "order_by": "created_at",
         "limit": 100
     }
 }
@@ -522,7 +723,11 @@ TABLE_CONFIG = {
 
 def json_serializer(obj):
 
-    if hasattr(obj, "isoformat"):
+    if hasattr(
+        obj,
+        "isoformat"
+    ):
+
         return obj.isoformat()
 
     if isinstance(
@@ -534,6 +739,7 @@ def json_serializer(obj):
             bool
         )
     ):
+
         return obj
 
     return str(obj)
@@ -562,7 +768,9 @@ def table_counts():
                         """
                     )
 
-                    result[table] = cur.fetchone()[0]
+                    result[table] = (
+                        cur.fetchone()[0]
+                    )
 
                 except Exception as exc:
 
@@ -574,7 +782,7 @@ def table_counts():
 
 
 # =====================================================
-# FETCH DATABASE SNAPSHOT
+# DATABASE SNAPSHOT
 # =====================================================
 
 def fetch_table_data():
@@ -584,10 +792,14 @@ def fetch_table_data():
     with get_db() as conn:
 
         with conn.cursor(
-            cursor_factory=psycopg2.extras.RealDictCursor
+            cursor_factory=(
+                psycopg2.extras.RealDictCursor
+            )
         ) as cur:
 
-            for table, config in TABLE_CONFIG.items():
+            for table, config in (
+                TABLE_CONFIG.items()
+            ):
 
                 try:
 
@@ -641,10 +853,13 @@ def execute_event(
         )
     )
 
-    if not os.path.isfile(script_path):
+    if not os.path.isfile(
+        script_path
+    ):
 
         raise Exception(
-            f"Generator file not found: {script_path}"
+            f"Generator file not found: "
+            f"{script_path}"
         )
 
     command = [
@@ -654,12 +869,16 @@ def execute_event(
 
     if args:
 
-        command.extend(args)
+        command.extend(
+            args
+        )
 
     print(
         "COMMAND:",
         " ".join(
-            f'"{x}"' if " " in x else x
+            f'"{x}"'
+            if " " in x
+            else x
             for x in command
         )
     )
@@ -694,41 +913,59 @@ def execute_event(
         after_value = after[table]
 
         if (
-            isinstance(before_value, int)
-            and isinstance(after_value, int)
+            isinstance(
+                before_value,
+                int
+            )
+            and
+            isinstance(
+                after_value,
+                int
+            )
         ):
 
             difference = (
-                after_value - before_value
+                after_value -
+                before_value
             )
 
             if difference != 0:
 
-                changes[table] = difference
+                changes[table] = (
+                    difference
+                )
 
     result = {
 
-        "event": event,
+        "event":
+            event,
 
-        "file": file,
+        "file":
+            file,
 
-        "arguments": args or [],
+        "arguments":
+            args or [],
 
-        "status": status,
+        "status":
+            status,
 
-        "return_code": process.returncode,
+        "return_code":
+            process.returncode,
 
-        "duration_seconds": duration,
+        "duration_seconds":
+            duration,
 
-        "stdout": process.stdout,
+        "stdout":
+            process.stdout,
 
-        "stderr": process.stderr,
+        "stderr":
+            process.stderr,
 
-        "table_changes": changes,
+        "table_changes":
+            changes,
 
         "executed_at":
             datetime.now().isoformat()
-
     }
 
     if status == "SUCCESS":
@@ -762,7 +999,7 @@ def execute_event(
 
 
 # =====================================================
-# BUILD STATIC EVENT ARGUMENTS
+# BUILD EVENT ARGUMENTS
 # =====================================================
 
 def build_static_event_args(
@@ -773,256 +1010,112 @@ def build_static_event_args(
     args = None
 
     # =================================================
-    # ORDER ITEM CREATED
+    # ORDER EVENTS
     # =================================================
 
     if event == "OrderItemCreated":
 
-        order_id = context.get(
-            "order_id"
-        )
-
-        if not order_id:
-
-            raise Exception(
-                "Order ID missing for OrderItemCreated"
-            )
-
         args = [
-            order_id
+            context["order_id"]
         ]
-
-
-    # =================================================
-    # INVENTORY ALLOCATION CREATED
-    # =================================================
 
     elif event == "InventoryAllocationCreated":
 
-        order_id = context.get(
-            "order_id"
-        )
-
-        if not order_id:
-
-            raise Exception(
-                "Order ID missing for InventoryAllocationCreated"
-            )
-
         args = [
-            order_id
+            context["order_id"]
         ]
-
-
-    # =================================================
-    # INVENTORY RESERVED
-    # =================================================
 
     elif event == "InventoryReserved":
 
-        order_id = context.get(
-            "order_id"
-        )
-
-        if not order_id:
-
-            raise Exception(
-                "Order ID missing for InventoryReserved"
-            )
-
         args = [
-            order_id
+            context["order_id"]
         ]
-
-
-    # =================================================
-    # PICKING TASK CREATED
-    # =================================================
 
     elif event == "PickingTaskCreated":
 
-        order_id = context.get(
-            "order_id"
-        )
-
-        if not order_id:
-
-            raise Exception(
-                "Order ID missing for PickingTaskCreated"
-            )
-
         args = [
-            order_id
+            context["order_id"]
         ]
 
-
     # =================================================
-    # PICKING TASK STARTED
+    # PICKING
     # =================================================
 
     elif event == "PickingTaskStarted":
 
-        task_id = context.get(
-            "current_picking_task"
-        )
-
-        if not task_id:
-
-            raise Exception(
-                "No current picking task available"
-            )
-
         args = [
-            task_id
+            context["current_picking_task"]
         ]
-
-
-    # =================================================
-    # PICKING COMPLETED
-    # =================================================
 
     elif event == "PickingCompleted":
 
-        task_id = context.get(
-            "current_picking_task"
-        )
-
-        if not task_id:
-
-            raise Exception(
-                "No current picking task available"
-            )
-
         args = [
-            task_id
+            context["current_picking_task"]
         ]
 
-
     # =================================================
-    # PACKING TASK CREATED
+    # PACKING
     # =================================================
 
     elif event == "PackingTaskCreated":
 
-        # Your current packing_task_created.py
-        # creates ONE task from one completed
-        # picking task.
-        #
-        # It does not accept an argument.
-        #
-        args = None
-
-
-    # =================================================
-    # PACKING TASK STARTED
-    # =================================================
+        args = [
+            context["current_picking_task"]
+        ]
 
     elif event == "PackingTaskStarted":
 
-        task_id = context.get(
-            "current_packing_task"
-        )
-
-        if not task_id:
-
-            raise Exception(
-                "No current packing task available"
-            )
-
         args = [
-            task_id
+            context["current_packing_task"]
         ]
-
-
-    # =================================================
-    # PACKING COMPLETED
-    # =================================================
 
     elif event == "PackingCompleted":
 
-        # Current packing_completed.py does not
-        # accept task_id. It searches for the
-        # oldest STARTED packing task itself.
-        #
-        # Therefore no argument is passed.
-
-        args = None
-
+        args = [
+            context["current_packing_task"]
+        ]
 
     # =================================================
-    # DEFAULT
+    # TRANSPORTATION
+    #
+    # These use the package currently being processed.
     # =================================================
 
-    else:
+    elif event == "ShipmentReady":
 
-        args = None
+        args = [
+            context["current_package_id"]
+        ]
+
+    elif event == "CarrierAssigned":
+
+        args = [
+            context["current_outbound_shipment_id"]
+        ]
+
+    elif event == "ShipmentPickedUp":
+
+        args = [
+            context["current_outbound_shipment_id"]
+        ]
+
+    elif event == "ShipmentInTransit":
+
+        args = [
+            context["current_outbound_shipment_id"]
+        ]
+
+    elif event == "ShipmentDelivered":
+
+        args = [
+            context["current_outbound_shipment_id"]
+        ]
 
     return args
 
 
 # =====================================================
-# CHECK CURRENT PICKING TASK
-# =====================================================
-
-def refresh_current_picking_task(context):
-
-    task_ids = context.get(
-        "picking_task_ids",
-        []
-    )
-
-    index = context.get(
-        "picking_index",
-        0
-    )
-
-    if index >= len(task_ids):
-
-        context["current_picking_task"] = None
-
-        return None
-
-    current_task = task_ids[index]
-
-    context["current_picking_task"] = (
-        current_task
-    )
-
-    return current_task
-
-
-# =====================================================
-# CHECK CURRENT PACKING TASK
-# =====================================================
-
-def refresh_current_packing_task(context):
-
-    task_ids = context.get(
-        "packing_task_ids",
-        []
-    )
-
-    index = context.get(
-        "packing_index",
-        0
-    )
-
-    if index >= len(task_ids):
-
-        context["current_packing_task"] = None
-
-        return None
-
-    current_task = task_ids[index]
-
-    context["current_packing_task"] = (
-        current_task
-    )
-
-    return current_task
-
-# =====================================================
-# UPDATE CONTEXT AFTER STATIC EVENT
+# UPDATE CONTEXT AFTER EVENT
 # =====================================================
 
 def update_context_after_static_event(
@@ -1038,7 +1131,9 @@ def update_context_after_static_event(
 
         order_id = get_latest_order_id()
 
-        context["order_id"] = order_id
+        context["order_id"] = (
+            order_id
+        )
 
         print(
             "Saved Order:",
@@ -1054,11 +1149,15 @@ def update_context_after_static_event(
 
     if event == "InventoryAllocationCreated":
 
-        allocation_ids = get_latest_allocation_ids(
-            context["order_id"]
+        allocation_ids = (
+            get_latest_allocation_ids(
+                context["order_id"]
+            )
         )
 
-        context["allocation_ids"] = allocation_ids
+        context["allocation_ids"] = (
+            allocation_ids
+        )
 
         print(
             "Saved Allocations:",
@@ -1074,11 +1173,16 @@ def update_context_after_static_event(
 
     if event == "PickingTaskCreated":
 
-        picking_task_ids = get_picking_task_ids(
-            context["order_id"]
+        picking_task_ids = (
+            get_picking_task_ids(
+                context["order_id"]
+            )
         )
 
-        context["picking_task_ids"] = picking_task_ids
+        context["picking_task_ids"] = (
+            picking_task_ids
+        )
+
         context["picking_index"] = 0
 
         context["current_picking_task"] = (
@@ -1095,8 +1199,247 @@ def update_context_after_static_event(
         return
 
 
+    # =================================================
+    # SHIPMENT READY
+    # =================================================
+
+    if event == "ShipmentReady":
+
+        package_id = context[
+            "current_package_id"
+        ]
+
+        shipment_id = (
+            get_outbound_shipment_for_package(
+                package_id
+            )
+        )
+
+        if not shipment_id:
+
+            raise Exception(
+                f"""
+ShipmentReady succeeded but no outbound
+shipment was found.
+
+PACKAGE:
+{package_id}
+"""
+            )
+
+        context[
+            "current_outbound_shipment_id"
+        ] = shipment_id
+
+        context[
+            "current_outbound_fulfillment_id"
+        ] = (
+            get_outbound_fulfillment_id(
+                shipment_id
+            )
+        )
+
+        print(
+            "Saved Outbound Shipment:",
+            shipment_id
+        )
+
+        print(
+            "Saved Outbound Fulfillment:",
+            context[
+                "current_outbound_fulfillment_id"
+            ]
+        )
+
+        return
+
+
+    # =================================================
+    # CARRIER ASSIGNED
+    # =================================================
+
+    if event == "CarrierAssigned":
+
+        shipment_id = context[
+            "current_outbound_shipment_id"
+        ]
+
+        transportation = (
+            get_outbound_transportation(
+                shipment_id
+            )
+        )
+
+        if not transportation:
+
+            raise Exception(
+                f"""
+CarrierAssigned succeeded but transportation
+record was not found.
+
+SHIPMENT:
+{shipment_id}
+"""
+            )
+
+        context[
+            "current_vehicle_id"
+        ] = (
+            transportation["vehicle_id"]
+        )
+
+        context[
+            "current_trailer_id"
+        ] = (
+            transportation["trailer_id"]
+        )
+
+        context[
+            "current_driver_id"
+        ] = (
+            transportation["driver_id"]
+        )
+
+        print(
+            "Saved Vehicle:",
+            context["current_vehicle_id"]
+        )
+
+        print(
+            "Saved Trailer:",
+            context["current_trailer_id"]
+        )
+
+        print(
+            "Saved Driver:",
+            context["current_driver_id"]
+        )
+
+        return
+
+
+    # =================================================
+    # SHIPMENT PICKED UP
+    # =================================================
+
+    if event == "ShipmentPickedUp":
+
+        shipment_id = context[
+            "current_outbound_shipment_id"
+        ]
+
+        tracking_id = (
+            get_outbound_tracking_id(
+                shipment_id
+            )
+        )
+
+        if not tracking_id:
+
+            raise Exception(
+                f"""
+ShipmentPickedUp succeeded but no tracking
+record was found.
+
+SHIPMENT:
+{shipment_id}
+"""
+            )
+
+        context[
+            "current_tracking_id"
+        ] = tracking_id
+
+        print(
+            "Saved Tracking:",
+            tracking_id
+        )
+
+        return
+
+
+    # =================================================
+    # SHIPMENT IN TRANSIT
+    # =================================================
+
+    if event == "ShipmentInTransit":
+
+        shipment_id = context[
+            "current_outbound_shipment_id"
+        ]
+
+        tracking_id = (
+            get_outbound_tracking_id(
+                shipment_id
+            )
+        )
+
+        if not tracking_id:
+
+            raise Exception(
+                f"""
+ShipmentInTransit completed but tracking
+record could not be found.
+
+SHIPMENT:
+{shipment_id}
+"""
+            )
+
+        context[
+            "current_tracking_id"
+        ] = tracking_id
+
+        print(
+            "Confirmed Tracking:",
+            tracking_id
+        )
+
+        return
+
+
+    # =================================================
+    # SHIPMENT DELIVERED
+    # =================================================
+
+    if event == "ShipmentDelivered":
+
+        shipment_id = context[
+            "current_outbound_shipment_id"
+        ]
+
+        tracking_id = (
+            get_outbound_tracking_id(
+                shipment_id
+            )
+        )
+
+        if not tracking_id:
+
+            raise Exception(
+                f"""
+ShipmentDelivered completed but tracking
+record could not be found.
+
+SHIPMENT:
+{shipment_id}
+"""
+            )
+
+        context[
+            "current_tracking_id"
+        ] = tracking_id
+
+        print(
+            "Confirmed Delivered Tracking:",
+            tracking_id
+        )
+
+        return
+
+
 # =====================================================
-# EXECUTE PICKING TASKS
+# PICKING FLOW
 # =====================================================
 
 def execute_picking_tasks(
@@ -1123,14 +1466,17 @@ def execute_picking_tasks(
     print("STARTING DYNAMIC PICKING FLOW")
     print("=" * 70)
 
-    for index, task_id in enumerate(task_ids):
+    for index, task_id in enumerate(
+        task_ids
+    ):
 
-        context["picking_index"] = index
-        context["current_picking_task"] = task_id
+        context[
+            "picking_index"
+        ] = index
 
-        # =================================================
-        # VERIFY TASK EXISTS
-        # =================================================
+        context[
+            "current_picking_task"
+        ] = task_id
 
         current_status = get_task_status(
             task_id
@@ -1138,8 +1484,9 @@ def execute_picking_tasks(
 
         print()
         print(
-            f"Picking Task {index + 1}/{len(task_ids)}:"
-            f" {task_id}"
+            f"Picking Task {index + 1}/"
+            f"{len(task_ids)}: "
+            f"{task_id}"
         )
 
         print(
@@ -1147,9 +1494,9 @@ def execute_picking_tasks(
             current_status
         )
 
-        # =================================================
-        # PICKING TASK STARTED
-        # =================================================
+        # ---------------------------------------------
+        # START
+        # ---------------------------------------------
 
         if current_status == "CREATED":
 
@@ -1161,7 +1508,9 @@ def execute_picking_tasks(
                 ]
             )
 
-            report.append(result)
+            report.append(
+                result
+            )
 
             if result["status"] != "SUCCESS":
 
@@ -1186,14 +1535,13 @@ def execute_picking_tasks(
         else:
 
             raise Exception(
-                f"Picking task {task_id} "
-                f"has unsupported status: "
-                f"{current_status}"
+                f"Unsupported picking status "
+                f"{current_status} for {task_id}"
             )
 
-        # =================================================
-        # PICKING COMPLETED
-        # =================================================
+        # ---------------------------------------------
+        # COMPLETE
+        # ---------------------------------------------
 
         current_status = get_task_status(
             task_id
@@ -1209,15 +1557,17 @@ def execute_picking_tasks(
                 ]
             )
 
-            report.append(result)
+            report.append(
+                result
+            )
 
             if result["status"] != "SUCCESS":
 
                 return False
 
-        # =================================================
-        # VERIFY COMPLETION
-        # =================================================
+        # ---------------------------------------------
+        # VERIFY
+        # ---------------------------------------------
 
         final_status = get_task_status(
             task_id
@@ -1236,15 +1586,13 @@ def execute_picking_tasks(
             task_id
         )
 
-    # =================================================
-    # ALL PICKING COMPLETE
-    # =================================================
+    context[
+        "current_picking_task"
+    ] = None
 
-    context["current_picking_task"] = None
-
-    context["picking_index"] = len(
-        task_ids
-    )
+    context[
+        "picking_index"
+    ] = len(task_ids)
 
     print()
     print(
@@ -1255,7 +1603,7 @@ def execute_picking_tasks(
 
 
 # =====================================================
-# EXECUTE PACKING TASK CREATION
+# PACKING TASK CREATION
 # =====================================================
 
 def execute_packing_task_creation(
@@ -1273,8 +1621,7 @@ def execute_packing_task_creation(
     if not picking_task_ids:
 
         raise Exception(
-            "No picking tasks available "
-            "for packing"
+            "No picking tasks available for packing"
         )
 
     print()
@@ -1282,12 +1629,9 @@ def execute_packing_task_creation(
     print("CREATING PACKING TASKS")
     print("=" * 70)
 
-    # =================================================
-    # CREATE ONE PACKING TASK FOR EACH
-    # COMPLETED PICKING TASK
-    # =================================================
-
-    for picking_task_id in picking_task_ids:
+    for picking_task_id in (
+        picking_task_ids
+    ):
 
         existing_packing_task = (
             get_packing_task_for_picking_task(
@@ -1310,22 +1654,25 @@ def execute_packing_task_creation(
 
             continue
 
+        context[
+            "current_picking_task"
+        ] = picking_task_id
+
         result = execute_event(
             "PackingTaskCreated",
             PACKING_CREATED_FILE,
-            None
+            [
+                picking_task_id
+            ]
         )
 
-        report.append(result)
+        report.append(
+            result
+        )
 
         if result["status"] != "SUCCESS":
 
             return False
-
-        # -------------------------------------------------
-        # Find the packing task created for this exact
-        # picking task.
-        # -------------------------------------------------
 
         packing_task_id = (
             get_packing_task_for_picking_task(
@@ -1336,9 +1683,12 @@ def execute_packing_task_creation(
         if not packing_task_id:
 
             raise Exception(
-                "Packing task was reported as SUCCESS "
-                f"but no packing task was created for "
-                f"picking task {picking_task_id}"
+                f"""
+PackingTaskCreated reported SUCCESS,
+but no packing task exists for:
+
+{picking_task_id}
+"""
             )
 
         created_packing_ids.append(
@@ -1347,20 +1697,26 @@ def execute_packing_task_creation(
 
         print(
             "Saved Packing Task:",
-            packing_task_id
+            packing_task_id,
+            "for Picking Task:",
+            picking_task_id
         )
 
-    # =================================================
-    # SAVE CONTEXT
-    # =================================================
+    context[
+        "current_picking_task"
+    ] = None
 
-    context["packing_task_ids"] = (
-        created_packing_ids
-    )
+    context[
+        "packing_task_ids"
+    ] = created_packing_ids
 
-    context["packing_index"] = 0
+    context[
+        "packing_index"
+    ] = 0
 
-    context["current_packing_task"] = (
+    context[
+        "current_packing_task"
+    ] = (
         created_packing_ids[0]
         if created_packing_ids
         else None
@@ -1375,7 +1731,7 @@ def execute_packing_task_creation(
 
 
 # =====================================================
-# EXECUTE PACKING TASKS
+# PACKING FLOW
 # =====================================================
 
 def execute_packing_tasks(
@@ -1401,15 +1757,23 @@ def execute_packing_tasks(
     print("STARTING DYNAMIC PACKING FLOW")
     print("=" * 70)
 
-    for index, task_id in enumerate(task_ids):
+    for index, task_id in enumerate(
+        task_ids
+    ):
 
-        context["packing_index"] = index
-        context["current_packing_task"] = task_id
+        context[
+            "packing_index"
+        ] = index
+
+        context[
+            "current_packing_task"
+        ] = task_id
 
         print()
         print(
             f"Packing Task {index + 1}/"
-            f"{len(task_ids)}: {task_id}"
+            f"{len(task_ids)}: "
+            f"{task_id}"
         )
 
         current_status = get_task_status(
@@ -1421,9 +1785,9 @@ def execute_packing_tasks(
             current_status
         )
 
-        # =================================================
-        # PACKING TASK STARTED
-        # =================================================
+        # ---------------------------------------------
+        # START
+        # ---------------------------------------------
 
         if current_status == "CREATED":
 
@@ -1435,7 +1799,9 @@ def execute_packing_tasks(
                 ]
             )
 
-            report.append(result)
+            report.append(
+                result
+            )
 
             if result["status"] != "SUCCESS":
 
@@ -1460,22 +1826,13 @@ def execute_packing_tasks(
         else:
 
             raise Exception(
-                f"Packing task {task_id} "
-                f"has unsupported status: "
-                f"{current_status}"
+                f"Unsupported packing status "
+                f"{current_status} for {task_id}"
             )
 
-        # =================================================
-        # PACKING COMPLETED
-        #
-        # IMPORTANT:
-        # Current packing_completed.py does not accept
-        # task_id. It searches for the oldest STARTED
-        # PACKING task.
-        #
-        # Since we start exactly one packing task at a
-        # time, this safely completes the current task.
-        # =================================================
+        # ---------------------------------------------
+        # COMPLETE
+        # ---------------------------------------------
 
         current_status = get_task_status(
             task_id
@@ -1486,18 +1843,22 @@ def execute_packing_tasks(
             result = execute_event(
                 "PackingCompleted",
                 PACKING_COMPLETED_FILE,
-                None
+                [
+                    task_id
+                ]
             )
 
-            report.append(result)
+            report.append(
+                result
+            )
 
             if result["status"] != "SUCCESS":
 
                 return False
 
-        # =================================================
-        # VERIFY COMPLETION
-        # =================================================
+        # ---------------------------------------------
+        # VERIFY
+        # ---------------------------------------------
 
         final_status = get_task_status(
             task_id
@@ -1516,19 +1877,247 @@ def execute_packing_tasks(
             task_id
         )
 
-    # =================================================
-    # ALL PACKING COMPLETE
-    # =================================================
+    context[
+        "current_packing_task"
+    ] = None
 
-    context["current_packing_task"] = None
-
-    context["packing_index"] = len(
-        task_ids
-    )
+    context[
+        "packing_index"
+    ] = len(task_ids)
 
     print()
     print(
         "ALL PACKING TASKS COMPLETED"
+    )
+
+    return True
+
+
+# =====================================================
+# TRANSPORTATION FOR ALL PACKAGES
+# =====================================================
+
+def execute_transportation_for_packages(
+    context,
+    report
+):
+
+    order_id = context.get(
+        "order_id"
+    )
+
+    if not order_id:
+
+        raise Exception(
+            "Order ID missing before transportation"
+        )
+
+    package_ids = get_packed_package_ids(
+        order_id
+    )
+
+    context[
+        "package_ids"
+    ] = package_ids
+
+    print()
+    print("=" * 70)
+    print(
+        "STARTING TRANSPORTATION FLOW FOR "
+        f"{len(package_ids)} PACKAGE(S)"
+    )
+    print("=" * 70)
+
+    for index, package_id in enumerate(
+        package_ids
+    ):
+
+        context[
+            "package_index"
+        ] = index
+
+        context[
+            "current_package_id"
+        ] = package_id
+
+        context[
+            "current_outbound_shipment_id"
+        ] = None
+
+        context[
+            "current_outbound_fulfillment_id"
+        ] = None
+
+        context[
+            "current_vehicle_id"
+        ] = None
+
+        context[
+            "current_trailer_id"
+        ] = None
+
+        context[
+            "current_driver_id"
+        ] = None
+
+        context[
+            "current_tracking_id"
+        ] = None
+
+        print()
+        print("=" * 70)
+        print(
+            f"PACKAGE {index + 1}/"
+            f"{len(package_ids)}: "
+            f"{package_id}"
+        )
+        print("=" * 70)
+
+        existing_shipment = (
+            get_outbound_shipment_for_package(
+                package_id
+            )
+        )
+
+        # ---------------------------------------------
+        # If the shipment already exists, recover it.
+        # ---------------------------------------------
+
+        if existing_shipment:
+
+            context[
+                "current_outbound_shipment_id"
+            ] = existing_shipment
+
+            context[
+                "current_outbound_fulfillment_id"
+            ] = (
+                get_outbound_fulfillment_id(
+                    existing_shipment
+                )
+            )
+
+            print(
+                "Existing outbound shipment found:",
+                existing_shipment
+            )
+
+        # ---------------------------------------------
+        # Run transportation events.
+        # ---------------------------------------------
+
+        for event, file in (
+            TRANSPORTATION_FLOW
+        ):
+
+            # -----------------------------------------
+            # Skip ShipmentReady when shipment already
+            # exists for this package.
+            # -----------------------------------------
+
+            if (
+                event == "ShipmentReady"
+                and
+                context[
+                    "current_outbound_shipment_id"
+                ]
+            ):
+
+                print(
+                    "ShipmentReady already completed "
+                    "for package:",
+                    package_id
+                )
+
+                continue
+
+            # -----------------------------------------
+            # Before later events, make sure shipment ID
+            # exists.
+            # -----------------------------------------
+
+            if event != "ShipmentReady":
+
+                shipment_id = context.get(
+                    "current_outbound_shipment_id"
+                )
+
+                if not shipment_id:
+
+                    existing_shipment = (
+                        get_outbound_shipment_for_package(
+                            package_id
+                        )
+                    )
+
+                    if existing_shipment:
+
+                        context[
+                            "current_outbound_shipment_id"
+                        ] = existing_shipment
+
+                    else:
+
+                        raise Exception(
+                            f"""
+No outbound shipment available for package:
+
+PACKAGE:
+{package_id}
+
+EVENT:
+{event}
+"""
+                        )
+
+            result = execute_static_flow_event(
+                event,
+                file,
+                context,
+                report
+            )
+
+            if not result:
+
+                return False
+
+        print()
+        print(
+            "TRANSPORTATION COMPLETED FOR PACKAGE:",
+            package_id
+        )
+
+        print(
+            "SHIPMENT:",
+            context[
+                "current_outbound_shipment_id"
+            ]
+        )
+
+        print(
+            "TRACKING:",
+            context[
+                "current_tracking_id"
+            ]
+        )
+
+    # ---------------------------------------------
+    # All packages completed.
+    # ---------------------------------------------
+
+    context[
+        "package_index"
+    ] = len(package_ids)
+
+    print()
+    print(
+        "=" * 70
+    )
+    print(
+        "ALL PACKAGE TRANSPORTATION FLOWS COMPLETED"
+    )
+    print(
+        "=" * 70
     )
 
     return True
@@ -1550,13 +2139,33 @@ def execute_static_flow_event(
         context
     )
 
+    if args is not None:
+
+        for value in args:
+
+            if not value:
+
+                raise Exception(
+                    f"""
+Missing argument for event {event}.
+
+Arguments:
+{args}
+
+Context:
+{context}
+"""
+                )
+
     result = execute_event(
         event,
         file,
         args
     )
 
-    report.append(result)
+    report.append(
+        result
+    )
 
     if result["status"] != "SUCCESS":
 
@@ -1579,7 +2188,9 @@ def execute_static_flow_event(
 # SAVE REPORT
 # =====================================================
 
-def save_report(report):
+def save_report(
+    report
+):
 
     os.makedirs(
         os.path.dirname(
@@ -1621,21 +2232,84 @@ def main():
 
     context = {
 
-        "order_id": None,
+        # ------------------------------
+        # Order
+        # ------------------------------
 
-        "allocation_ids": [],
+        "order_id":
+            None,
 
-        "picking_task_ids": [],
+        # ------------------------------
+        # Inventory
+        # ------------------------------
 
-        "picking_index": 0,
+        "allocation_ids":
+            [],
 
-        "current_picking_task": None,
+        # ------------------------------
+        # Picking
+        # ------------------------------
 
-        "packing_task_ids": [],
+        "picking_task_ids":
+            [],
 
-        "packing_index": 0,
+        "picking_index":
+            0,
 
-        "current_packing_task": None
+        "current_picking_task":
+            None,
+
+        # ------------------------------
+        # Packing
+        # ------------------------------
+
+        "packing_task_ids":
+            [],
+
+        "packing_index":
+            0,
+
+        "current_packing_task":
+            None,
+
+        # ------------------------------
+        # Packages
+        # ------------------------------
+
+        "package_ids":
+            [],
+
+        "package_index":
+            0,
+
+        "current_package_id":
+            None,
+
+        # ------------------------------
+        # Outbound
+        # ------------------------------
+
+        "current_outbound_fulfillment_id":
+            None,
+
+        "current_outbound_shipment_id":
+            None,
+
+        # ------------------------------
+        # Transportation
+        # ------------------------------
+
+        "current_driver_id":
+            None,
+
+        "current_vehicle_id":
+            None,
+
+        "current_trailer_id":
+            None,
+
+        "current_tracking_id":
+            None
     }
 
     try:
@@ -1644,13 +2318,17 @@ def main():
         # 1. INBOUND
         # =================================================
 
-        for event, file in INBOUND_FLOW:
+        for event, file in (
+            INBOUND_FLOW
+        ):
 
-            success = execute_static_flow_event(
-                event,
-                file,
-                context,
-                report
+            success = (
+                execute_static_flow_event(
+                    event,
+                    file,
+                    context,
+                    report
+                )
             )
 
             if not success:
@@ -1658,16 +2336,20 @@ def main():
                 return
 
         # =================================================
-        # 2. INITIAL OUTBOUND FLOW
+        # 2. INITIAL OUTBOUND
         # =================================================
 
-        for event, file in OUTBOUND_INITIAL_FLOW:
+        for event, file in (
+            OUTBOUND_INITIAL_FLOW
+        ):
 
-            success = execute_static_flow_event(
-                event,
-                file,
-                context,
-                report
+            success = (
+                execute_static_flow_event(
+                    event,
+                    file,
+                    context,
+                    report
+                )
             )
 
             if not success:
@@ -1678,9 +2360,11 @@ def main():
         # 3. PICKING
         # =================================================
 
-        picking_success = execute_picking_tasks(
-            context,
-            report
+        picking_success = (
+            execute_picking_tasks(
+                context,
+                report
+            )
         )
 
         if not picking_success:
@@ -1692,7 +2376,7 @@ def main():
             return
 
         # =================================================
-        # 4. PACKING TASK CREATION
+        # 4. CREATE PACKING TASKS
         # =================================================
 
         packing_creation_success = (
@@ -1705,7 +2389,8 @@ def main():
         if not packing_creation_success:
 
             print(
-                "\nFLOW STOPPED AT PackingTaskCreated"
+                "\nFLOW STOPPED AT "
+                "PackingTaskCreated"
             )
 
             return
@@ -1714,9 +2399,11 @@ def main():
         # 5. PACKING
         # =================================================
 
-        packing_success = execute_packing_tasks(
-            context,
-            report
+        packing_success = (
+            execute_packing_tasks(
+                context,
+                report
+            )
         )
 
         if not packing_success:
@@ -1728,30 +2415,90 @@ def main():
             return
 
         # =================================================
-        # 6. TRANSPORTATION
+        # 6. VERIFY ALL PACKAGES
         # =================================================
 
-        for event, file in TRANSPORTATION_FLOW:
+        package_ids = (
+            get_packed_package_ids(
+                context["order_id"]
+            )
+        )
 
-            success = execute_static_flow_event(
-                event,
-                file,
+        context[
+            "package_ids"
+        ] = package_ids
+
+        print()
+        print(
+            "PACKED PACKAGES:",
+            package_ids
+        )
+
+        print(
+            "TOTAL PACKAGES:",
+            len(package_ids)
+        )
+
+        # =================================================
+        # 7. TRANSPORTATION
+        # =================================================
+
+        transportation_success = (
+            execute_transportation_for_packages(
                 context,
                 report
             )
+        )
 
-            if not success:
+        if not transportation_success:
 
-                return
+            print(
+                "\nFLOW STOPPED DURING "
+                "TRANSPORTATION"
+            )
+
+            return
 
         # =================================================
-        # 7. SUCCESS
+        # 8. FINAL CLEANUP
+        # =================================================
+
+        context[
+            "current_picking_task"
+        ] = None
+
+        context[
+            "current_packing_task"
+        ] = None
+
+        context[
+            "current_package_id"
+        ] = None
+
+        # =================================================
+        # 9. SUCCESS
         # =================================================
 
         print()
         print("=" * 70)
-        print("COMPLETE EVENT FLOW FINISHED SUCCESSFULLY")
+        print(
+            "COMPLETE EVENT FLOW "
+            "FINISHED SUCCESSFULLY"
+        )
         print("=" * 70)
+
+        print()
+        print(
+            "FINAL CONTEXT:"
+        )
+
+        print(
+            json.dumps(
+                context,
+                indent=4,
+                default=json_serializer
+            )
+        )
 
     except Exception as exc:
 
@@ -1766,9 +2513,15 @@ def main():
 
         report.append(
             {
-                "event": "FLOW",
-                "status": "FAILED",
-                "error": str(exc),
+                "event":
+                    "FLOW",
+
+                "status":
+                    "FAILED",
+
+                "error":
+                    str(exc),
+
                 "executed_at":
                     datetime.now().isoformat()
             }
@@ -1776,7 +2529,9 @@ def main():
 
     finally:
 
-        save_report(report)
+        save_report(
+            report
+        )
 
 
 # =====================================================

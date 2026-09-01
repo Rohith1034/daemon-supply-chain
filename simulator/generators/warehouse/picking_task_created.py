@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import timedelta
 import random
 import sys
 
@@ -11,63 +11,91 @@ from core.logger import (
     log_event_failure
 )
 
+from core.simulation_clock import (
+    get_simulation_now
+)
+
 
 EVENT_NAME = "PickingTaskCreated"
 
 
+def _get_picking_task_created_time(
+    allocation,
+    task_delay_minutes
+):
+    """
+    Calculate a causally valid picking-task creation time.
+
+    PickingTaskCreated must occur after the corresponding
+    inventory allocation/reservation.
+
+    Primary business anchor:
+        inventory_allocation.allocated_at
+
+    Fallback:
+        simulation clock
+    """
+
+    allocation_time = allocation.get(
+        "allocated_at"
+    )
+
+    if allocation_time is None:
+        base_time = get_simulation_now()
+    else:
+        base_time = allocation_time
+
+    return (
+        base_time +
+        timedelta(
+            minutes=task_delay_minutes
+        )
+    )
+
 
 def generate_picking_task_created(reference_id):
 
-
     with Database() as db:
-
 
         # =====================================================
         # 1. FIND ORDER FROM ALLOCATION OR ORDER ID
         # =====================================================
 
-        order = db.fetch_one(
+        allocation_reference = db.fetch_one(
             """
-
             SELECT
                 order_id
-
             FROM inventory_allocations
-
             WHERE allocation_id=%s
-
-
+            LIMIT 1
             """,
             (
                 reference_id,
             )
         )
 
+        if allocation_reference:
 
-        if order:
-
-            order_id = order["order_id"]
+            order_id = allocation_reference["order_id"]
 
         else:
 
-            # maybe direct order id was passed
+            # ---------------------------------------------
+            # Direct order id was passed
+            # ---------------------------------------------
 
             order_check = db.fetch_one(
                 """
-
                 SELECT
                     order_id
-
                 FROM orders
-
                 WHERE order_id=%s
-
+                LIMIT 1
                 """,
                 (
                     reference_id,
                 )
             )
-
 
             if not order_check:
 
@@ -79,10 +107,7 @@ Order or Allocation not found:
 """
                 )
 
-
             order_id = reference_id
-
-
 
         # =====================================================
         # 2. FETCH ALL RESERVED ALLOCATIONS
@@ -90,35 +115,24 @@ Order or Allocation not found:
 
         allocations = db.fetch_all(
             """
-
             SELECT
-
                 allocation_id,
                 order_id,
                 product_id,
                 warehouse_id,
                 allocated_quantity,
                 location_id,
+                allocated_at,
                 correlation_id
-
-
             FROM inventory_allocations
-
-
             WHERE order_id=%s
-
-            AND allocation_status='RESERVED'
-
-
-            ORDER BY allocation_id
-
-
+              AND allocation_status='RESERVED'
+            ORDER BY allocated_at, allocation_id
             """,
             (
                 order_id,
             )
         )
-
 
         if not allocations:
 
@@ -131,18 +145,13 @@ ORDER:
 """
             )
 
-
-
-        created_tasks=[]
-
-
+        created_tasks = []
 
         # =====================================================
         # 3. CREATE TASK PER ALLOCATION
         # =====================================================
 
         for allocation in allocations:
-
 
             allocation_id = allocation["allocation_id"]
 
@@ -156,34 +165,26 @@ ORDER:
                 allocation["correlation_id"]
             )
 
-
             # -----------------------------------------
             # Skip existing task
             # -----------------------------------------
 
             existing = db.fetch_one(
                 """
-
-                SELECT task_id
-
+                SELECT
+                    task_id
                 FROM warehouse_tasks
-
                 WHERE allocation_id=%s
-
-                AND task_type='PICKING'
-
+                  AND task_type='PICKING'
+                LIMIT 1
                 """,
                 (
                     allocation_id,
                 )
             )
 
-
             if existing:
-
                 continue
-
-
 
             # -----------------------------------------
             # Find available worker
@@ -191,28 +192,19 @@ ORDER:
 
             worker = db.fetch_one(
                 """
-
-                SELECT worker_id
-
+                SELECT
+                    worker_id
                 FROM workers
-
                 WHERE warehouse_id=%s
-
-                AND current_status='AVAILABLE'
-
+                  AND current_status='AVAILABLE'
                 ORDER BY random()
-
                 LIMIT 1
-
                 FOR UPDATE
-
-
                 """,
                 (
                     warehouse_id,
                 )
             )
-
 
             if not worker:
 
@@ -222,23 +214,34 @@ No available picker
 
 WAREHOUSE:
 {warehouse_id}
+
+ALLOCATION:
+{allocation_id}
 """
                 )
 
-
             worker_id = worker["worker_id"]
 
+            # -----------------------------------------
+            # Generate task timing
+            # -----------------------------------------
 
-
-            now = datetime.now(
-                timezone.utc
+            estimated_minutes = random.randint(
+                5,
+                20
             )
 
+            task_delay_minutes = random.randint(
+                5,
+                30
+            )
 
+            created_at = _get_picking_task_created_time(
+                allocation,
+                task_delay_minutes
+            )
 
             task_id = next_task_id(db)
-
-
 
             # -----------------------------------------
             # INSERT TASK
@@ -246,260 +249,184 @@ WAREHOUSE:
 
             db.execute(
                 """
-
                 INSERT INTO warehouse_tasks
-
                 (
-
                     task_id,
-
                     task_type,
-
                     warehouse_id,
-
                     order_id,
-
                     product_id,
-
                     quantity,
-
                     priority,
-
                     status,
-
                     assigned_worker_id,
-
                     estimated_minutes,
-
                     created_at,
-
                     assigned_at,
-
                     created_by,
-
                     correlation_id,
-
                     allocation_id,
-
                     expected_quantity
-
                 )
-
-
                 VALUES
-
                 (
-
                     %s,%s,%s,%s,%s,
-
                     %s,%s,%s,%s,%s,
-
                     %s,%s,%s,%s,%s,%s
-
                 )
-
                 """,
                 (
-
                     task_id,
-
                     "PICKING",
-
                     warehouse_id,
-
                     order_id,
-
                     product_id,
-
                     quantity,
-
                     "HIGH",
-
                     "CREATED",
-
                     worker_id,
-
-                    random.randint(5,20),
-
-                    now,
-
-                    now,
-
+                    estimated_minutes,
+                    created_at,
+                    created_at,
                     "WMS",
-
                     correlation_id,
-
                     allocation_id,
-
                     quantity
-
                 )
-
             )
 
-
-
             # -----------------------------------------
-            # Worker busy
+            # Reserve worker for this task
             # -----------------------------------------
 
             db.execute(
                 """
-
                 UPDATE workers
-
-                SET current_status='BUSY'
-
+                SET
+                    current_status='BUSY'
                 WHERE worker_id=%s
-
-
                 """,
                 (
                     worker_id,
                 )
             )
-
-
 
             # -----------------------------------------
             # Event
             # -----------------------------------------
 
             payload = {
-
-
                 "eventType":
                     EVENT_NAME,
 
-
                 "pickingTask":
-
                 {
-
                     "taskId":
                         task_id,
-
 
                     "allocationId":
                         allocation_id,
 
-
                     "orderId":
                         order_id,
-
 
                     "warehouseId":
                         warehouse_id,
 
-
                     "productId":
                         product_id,
-
 
                     "quantity":
                         quantity,
 
-
                     "workerId":
                         worker_id,
 
-
                     "status":
-                        "CREATED"
+                        "CREATED",
 
+                    "createdAt":
+                        created_at.isoformat(),
+
+                    "allocatedAt":
+                        allocation["allocated_at"].isoformat()
+                        if allocation["allocated_at"]
+                        else None
                 },
 
-
                 "occurredAt":
-                    now.isoformat(),
-
+                    created_at.isoformat(),
 
                 "correlationId":
                     correlation_id
-
             }
 
-
-
             publish_event(
-
                 db=db,
-
                 event_type=EVENT_NAME,
-
                 aggregate_type="WAREHOUSE_TASK",
-
                 aggregate_id=task_id,
-
                 correlation_id=correlation_id,
-
                 payload=payload
-
             )
 
-
+            # -----------------------------------------
+            # Logging
+            # -----------------------------------------
 
             log_event_success(
-
                 EVENT_NAME,
-
                 {
-
                     "task_id":
                         task_id,
-
 
                     "allocation_id":
                         allocation_id,
 
+                    "order_id":
+                        order_id,
 
                     "product_id":
                         product_id,
 
+                    "warehouse_id":
+                        warehouse_id,
+
+                    "worker_id":
+                        worker_id,
 
                     "quantity":
-                        quantity
+                        quantity,
 
+                    "created_at":
+                        created_at,
+
+                    "correlation_id":
+                        correlation_id
                 }
-
             )
 
-
-
             created_tasks.append(
-
                 {
-
                     "task_id":
                         task_id,
-
 
                     "allocation_id":
                         allocation_id,
 
-
                     "quantity":
                         quantity
-
                 }
-
             )
-
-
 
         return created_tasks
 
 
-
-
-
-if __name__=="__main__":
-
+if __name__ == "__main__":
 
     try:
 
-
-        if len(sys.argv)<2:
+        if len(sys.argv) < 2:
 
             raise Exception(
                 """
@@ -513,22 +440,15 @@ python picking_task_created.py ORD-000000001
 """
             )
 
-
         generate_picking_task_created(
             sys.argv[1]
         )
 
-
-
     except Exception as e:
 
-
         log_event_failure(
-
             EVENT_NAME,
-
             e
-
         )
 
         raise
