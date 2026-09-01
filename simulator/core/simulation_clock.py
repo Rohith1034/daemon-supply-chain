@@ -1,88 +1,42 @@
-import os
 from datetime import datetime, timezone
+import os
+
+SIMULATION_NOW_ENV = "SIMULATION_NOW"
 
 
-# =====================================================
-# ENVIRONMENT VARIABLE
-# =====================================================
+def _parse_datetime(value: str) -> datetime:
+    value = value.strip()
 
-SIMULATION_TIME_ENV = "SIMULATION_TIME"
+    # Support trailing Z
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
 
+    dt = datetime.fromisoformat(value)
 
-# =====================================================
-# GET SIMULATION TIME
-# =====================================================
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+
+    return dt
+
 
 def get_simulation_now() -> datetime:
     """
-    Return the current business/simulation timestamp.
+    Returns the simulation time.
 
     Priority:
-        1. SIMULATION_TIME environment variable
-        2. Actual current UTC time
-
-    Expected environment variable format:
-
-        2026-08-30T08:00:00+00:00
-
-    A naive timestamp is also accepted and will be
-    treated as UTC:
-
-        2026-08-30T08:00:00
+    1. SIMULATION_NOW environment variable
+    2. Real current UTC time
     """
+    raw = os.getenv(SIMULATION_NOW_ENV)
 
-    simulation_time = os.getenv(
-        SIMULATION_TIME_ENV
-    )
-
-    # -------------------------------------------------
-    # Simulation time explicitly provided
-    # -------------------------------------------------
-
-    if simulation_time:
-
+    if raw:
         try:
-
-            parsed_time = datetime.fromisoformat(
-                simulation_time
-            )
-
-        except ValueError as exc:
-
+            return _parse_datetime(raw)
+        except Exception as exc:
             raise ValueError(
-                f"Invalid {SIMULATION_TIME_ENV} value: "
-                f"{simulation_time!r}. "
-                "Expected ISO-8601 format, for example "
-                "'2026-08-30T08:00:00+00:00'."
+                f"Invalid {SIMULATION_NOW_ENV} value: {raw}"
             ) from exc
 
-        # -------------------------------------------------
-        # If no timezone was supplied, treat as UTC.
-        # This prevents mixing naive and timezone-aware
-        # datetimes later in the generators.
-        # -------------------------------------------------
-
-        if parsed_time.tzinfo is None:
-
-            parsed_time = parsed_time.replace(
-                tzinfo=timezone.utc
-            )
-
-        # -------------------------------------------------
-        # Normalize to UTC.
-        # -------------------------------------------------
-
-        return parsed_time.astimezone(
-            timezone.utc
-        )
-
-    # -------------------------------------------------
-    # Standalone generator execution
-    #
-    # When no simulation time is supplied, fall back
-    # to the real current UTC time.
-    # -------------------------------------------------
-
-    return datetime.now(
-        timezone.utc
-    )
+    return datetime.now(timezone.utc)

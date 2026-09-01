@@ -28,6 +28,10 @@ EVENT_NAME = "ShipmentReady"
 def _generate_fulfillment_id():
     """
     Generate a unique outbound fulfillment identifier.
+
+    The current database model has one fulfillment per order,
+    so this function is used only when the first package of
+    an order creates the fulfillment.
     """
 
     return (
@@ -55,11 +59,15 @@ def _get_shipment_ready_time(
     package
 ):
     """
+    Calculate a causally valid ShipmentReady timestamp.
+
     ShipmentReady must occur after PackingCompleted.
 
-    packed_at is the preferred predecessor timestamp.
+    Primary predecessor:
+        packed_at
 
-    The simulation clock is used only as a fallback.
+    Fallback:
+        simulation clock
     """
 
     packed_at = package.get(
@@ -110,7 +118,6 @@ def generate_shipment_ready(
                 FROM packages
 
                 WHERE package_id=%s
-                  AND package_status='PACKED'
 
                 LIMIT 1
 
@@ -137,7 +144,8 @@ def generate_shipment_ready(
 
                 WHERE package_status='PACKED'
 
-                ORDER BY packed_at DESC
+                ORDER BY packed_at DESC,
+                         package_id DESC
 
                 LIMIT 1
 
@@ -150,12 +158,12 @@ def generate_shipment_ready(
             if package_id:
 
                 raise Exception(
-                    f"No PACKED package found "
+                    f"No package found "
                     f"for package_id={package_id}"
                 )
 
             raise Exception(
-                "No PACKED package found"
+                "No package found"
             )
 
         # ====================================================
@@ -175,8 +183,14 @@ def generate_shipment_ready(
         ]
 
         package_correlation_id = (
-            package["correlation_id"]
+            package[
+                "correlation_id"
+            ]
         )
+
+        package_status = package[
+            "package_status"
+        ]
 
         if not order_id:
 
@@ -193,7 +207,174 @@ def generate_shipment_ready(
             )
 
         # ====================================================
-        # 3. FETCH ORDER
+        # 3. CHECK FOR EXISTING SHIPMENT FOR THIS PACKAGE
+        #
+        # This check is intentionally performed before the
+        # order-status validation.
+        #
+        # That makes ShipmentReady idempotent.
+        #
+        # If the same package already has a shipment, simply
+        # return the existing shipment rather than trying to
+        # create another one.
+        # ====================================================
+
+        existing_shipment = db.fetch_one(
+            """
+            SELECT
+                shipment_id,
+                fulfillment_id,
+                shipment_status,
+                shipment_date,
+                expected_delivery
+
+            FROM outbound_shipments
+
+            WHERE package_id=%s
+
+            LIMIT 1
+
+            FOR UPDATE
+            """,
+            (
+                package_id,
+            )
+        )
+
+        if existing_shipment:
+
+            shipment_id = existing_shipment[
+                "shipment_id"
+            ]
+
+            fulfillment_id = existing_shipment[
+                "fulfillment_id"
+            ]
+
+            existing_status = existing_shipment[
+                "shipment_status"
+            ]
+
+            correlation_id = (
+                str(package_correlation_id)
+                if package_correlation_id
+                else str(uuid.uuid4())
+            )
+
+            allowed_existing_states = (
+                "READY",
+                "ASSIGNED",
+                "PICKED_UP",
+                "IN_TRANSIT",
+                "DELIVERED"
+            )
+
+            if existing_status not in (
+                allowed_existing_states
+            ):
+
+                raise Exception(
+                    f"""
+Outbound shipment already exists with
+an unsupported state.
+
+PACKAGE:
+{package_id}
+
+SHIPMENT:
+{shipment_id}
+
+STATUS:
+{existing_status}
+"""
+                )
+
+            log_event_success(
+                EVENT_NAME,
+                {
+                    "shipment_id":
+                        shipment_id,
+
+                    "fulfillment_id":
+                        fulfillment_id,
+
+                    "package_id":
+                        package_id,
+
+                    "order_id":
+                        order_id,
+
+                    "warehouse_id":
+                        warehouse_id,
+
+                    "shipment_date":
+                        existing_shipment[
+                            "shipment_date"
+                        ],
+
+                    "expected_delivery":
+                        existing_shipment[
+                            "expected_delivery"
+                        ],
+
+                    "status":
+                        existing_status,
+
+                    "correlation_id":
+                        correlation_id
+                }
+            )
+
+            return {
+                "shipment_id":
+                    shipment_id,
+
+                "fulfillment_id":
+                    fulfillment_id,
+
+                "package_id":
+                    package_id,
+
+                "order_id":
+                    order_id,
+
+                "warehouse_id":
+                    warehouse_id,
+
+                "shipment_date":
+                    existing_shipment[
+                        "shipment_date"
+                    ],
+
+                "expected_delivery":
+                    existing_shipment[
+                        "expected_delivery"
+                    ],
+
+                "status":
+                    existing_status
+            }
+
+        # ====================================================
+        # 4. PACKAGE MUST BE PACKED FOR A NEW SHIPMENT
+        # ====================================================
+
+        if package_status != "PACKED":
+
+            raise Exception(
+                f"""
+Package is not PACKED.
+
+PACKAGE:
+{package_id}
+
+STATUS:
+{package_status}
+"""
+            )
+
+        # ====================================================
+        # 5. FETCH ORDER
         # ====================================================
 
         order = db.fetch_one(
@@ -210,6 +391,8 @@ def generate_shipment_ready(
 
             WHERE order_id=%s
 
+            LIMIT 1
+
             FOR UPDATE
             """,
             (
@@ -224,7 +407,7 @@ def generate_shipment_ready(
             )
 
         # ====================================================
-        # 4. VALIDATE PACKAGE / ORDER WAREHOUSE
+        # 6. VALIDATE PACKAGE / ORDER WAREHOUSE
         # ====================================================
 
         if (
@@ -252,20 +435,18 @@ ORDER WAREHOUSE:
             )
 
         # ====================================================
-        # 5. VALIDATE ORDER STATUS
+        # 7. VALIDATE ORDER STATUS
         #
-        # IMPORTANT:
+        # Valid multi-package states:
         #
-        # The order may already have one or more packages
-        # delivered.
+        # PACKED
+        #     ↓
+        # PARTIALLY_DELIVERED
+        #     ↓
+        # DELIVERED
         #
-        # Example:
-        #
-        # Package 1 -> DELIVERED
-        # Package 2 -> waiting for ShipmentReady
-        # Package 3 -> waiting for ShipmentReady
-        #
-        # Therefore PARTIALLY_DELIVERED is a valid state.
+        # PARTIALLY_DELIVERED allows remaining packages to
+        # continue through ShipmentReady.
         # ====================================================
 
         allowed_order_states = (
@@ -293,23 +474,50 @@ ALLOWED STATES:
             )
 
         # ====================================================
-        # 6. FIND EXISTING OUTBOUND FULFILLMENT
+        # 8. DETERMINE CORRELATION ID
+        # ====================================================
+
+        correlation_id = (
+            str(package_correlation_id)
+            if package_correlation_id
+            else (
+                str(order["correlation_id"])
+                if order["correlation_id"]
+                else str(uuid.uuid4())
+            )
+        )
+
+        # ====================================================
+        # 9. FIND EXISTING FULFILLMENT FOR ORDER
         #
-        # There should normally be ONE fulfillment per order,
-        # even when the order is split across multiple packages.
+        # IMPORTANT:
+        #
+        # Your schema has:
+        #
+        #     UNIQUE (order_id)
+        #
+        # on outbound_fulfillment.
+        #
+        # Therefore there must be ONE fulfillment per order.
+        #
+        # Multiple packages are represented by multiple
+        # outbound_shipments under the same fulfillment.
         # ====================================================
 
         fulfillment = db.fetch_one(
             """
             SELECT
                 fulfillment_id,
-                status
+                order_id,
+                warehouse_id,
+                status,
+                created_at,
+                completed_at,
+                correlation_id
 
             FROM outbound_fulfillment
 
             WHERE order_id=%s
-
-            ORDER BY created_at ASC
 
             LIMIT 1
 
@@ -320,43 +528,55 @@ ALLOWED STATES:
             )
         )
 
+        # ====================================================
+        # 10. REUSE EXISTING FULFILLMENT
+        # ====================================================
+
         if fulfillment:
 
-            fulfillment_id = (
-                fulfillment["fulfillment_id"]
-            )
+            fulfillment_id = fulfillment[
+                "fulfillment_id"
+            ]
 
-            fulfillment_status = (
-                fulfillment["status"]
-            )
+            fulfillment_status = fulfillment[
+                "status"
+            ]
 
             # ------------------------------------------------
-            # A completed fulfillment cannot create a new
-            # shipment.
-            #
-            # This normally means every package has already
-            # been delivered.
+            # If the fulfillment is already completed while
+            # the package has no shipment, the state is
+            # inconsistent and should not silently continue.
             # ------------------------------------------------
 
             if fulfillment_status == "COMPLETED":
 
                 raise Exception(
                     f"""
-Outbound fulfillment is already COMPLETED.
+Outbound fulfillment is already COMPLETED,
+but this package has no outbound shipment.
 
 ORDER:
 {order_id}
+
+PACKAGE:
+{package_id}
 
 FULFILLMENT:
 {fulfillment_id}
 """
                 )
 
-        else:
+            # ------------------------------------------------
+            # Keep the existing fulfillment.
+            # ------------------------------------------------
 
-            # =================================================
-            # 7. CREATE FULFILLMENT
-            # =================================================
+            fulfillment_created = False
+
+        # ====================================================
+        # 11. CREATE FULFILLMENT FOR FIRST PACKAGE
+        # ====================================================
+
+        else:
 
             fulfillment_id = (
                 _generate_fulfillment_id()
@@ -366,14 +586,6 @@ FULFILLMENT:
                 package["packed_at"]
                 or
                 get_simulation_now()
-            )
-
-            correlation_id = (
-                package_correlation_id
-                or
-                order["correlation_id"]
-                or
-                uuid.uuid4()
             )
 
             db.execute(
@@ -408,22 +620,43 @@ FULFILLMENT:
                 )
             )
 
-        # ====================================================
-        # 8. DETERMINE CORRELATION ID
-        # ====================================================
-
-        correlation_id = (
-            str(package_correlation_id)
-            if package_correlation_id
-            else (
-                str(order["correlation_id"])
-                if order["correlation_id"]
-                else str(uuid.uuid4())
-            )
-        )
+            fulfillment_created = True
 
         # ====================================================
-        # 9. CALCULATE SHIPMENT READY TIME
+        # 12. VERIFY FULFILLMENT WAREHOUSE
+        # ====================================================
+
+        if fulfillment:
+
+            if (
+                fulfillment["warehouse_id"]
+                !=
+                warehouse_id
+            ):
+
+                raise Exception(
+                    f"""
+Fulfillment warehouse mismatch.
+
+ORDER:
+{order_id}
+
+PACKAGE:
+{package_id}
+
+PACKAGE WAREHOUSE:
+{warehouse_id}
+
+FULFILLMENT:
+{fulfillment_id}
+
+FULFILLMENT WAREHOUSE:
+{fulfillment["warehouse_id"]}
+"""
+                )
+
+        # ====================================================
+        # 13. CALCULATE SHIPMENT READY TIME
         # ====================================================
 
         ready_at = _get_shipment_ready_time(
@@ -431,152 +664,13 @@ FULFILLMENT:
         )
 
         # ====================================================
-        # 10. CHECK FOR EXISTING SHIPMENT FOR THIS PACKAGE
-        #
-        # Important:
-        #
-        # Each package gets its own outbound shipment.
-        #
-        # Therefore this lookup is package-specific.
-        # ====================================================
-
-        outbound_shipment = db.fetch_one(
-            """
-            SELECT
-                shipment_id,
-                fulfillment_id,
-                shipment_status
-
-            FROM outbound_shipments
-
-            WHERE package_id=%s
-
-            ORDER BY created_at ASC
-
-            LIMIT 1
-
-            FOR UPDATE
-            """,
-            (
-                package_id,
-            )
-        )
-
-        # ====================================================
-        # 11. EXISTING SHIPMENT
-        # ====================================================
-
-        if outbound_shipment:
-
-            shipment_id = (
-                outbound_shipment[
-                    "shipment_id"
-                ]
-            )
-
-            existing_status = (
-                outbound_shipment[
-                    "shipment_status"
-                ]
-            )
-
-            allowed_existing_states = (
-                "READY",
-                "ASSIGNED",
-                "PICKED_UP",
-                "IN_TRANSIT",
-                "DELIVERED"
-            )
-
-            if existing_status not in (
-                allowed_existing_states
-            ):
-
-                raise Exception(
-                    f"""
-Outbound shipment already exists with
-an unsupported state.
-
-PACKAGE:
-{package_id}
-
-SHIPMENT:
-{shipment_id}
-
-STATUS:
-{existing_status}
-"""
-                )
-
-            # ------------------------------------------------
-            # Keep the existing fulfillment.
-            # ------------------------------------------------
-
-            fulfillment_id = (
-                outbound_shipment[
-                    "fulfillment_id"
-                ]
-                or
-                fulfillment_id
-            )
-
-            log_event_success(
-                EVENT_NAME,
-                {
-                    "shipment_id":
-                        shipment_id,
-
-                    "fulfillment_id":
-                        fulfillment_id,
-
-                    "package_id":
-                        package_id,
-
-                    "order_id":
-                        order_id,
-
-                    "warehouse_id":
-                        warehouse_id,
-
-                    "status":
-                        existing_status,
-
-                    "correlation_id":
-                        correlation_id
-                }
-            )
-
-            return {
-                "shipment_id":
-                    shipment_id,
-
-                "fulfillment_id":
-                    fulfillment_id,
-
-                "package_id":
-                    package_id,
-
-                "order_id":
-                    order_id,
-
-                "status":
-                    existing_status
-            }
-
-        # ====================================================
-        # 12. CREATE NEW OUTBOUND SHIPMENT
-        # ====================================================
-
-        shipment_id = (
-            _generate_outbound_shipment_id()
-        )
-
-        # ====================================================
-        # 13. PROMISED DELIVERY
+        # 14. PROMISED DELIVERY
         # ====================================================
 
         promised_delivery = (
-            order["promised_delivery_date"]
+            order[
+                "promised_delivery_date"
+            ]
         )
 
         if promised_delivery is None:
@@ -591,7 +685,19 @@ ORDER:
             )
 
         # ====================================================
-        # 14. INSERT OUTBOUND SHIPMENT
+        # 15. GENERATE OUTBOUND SHIPMENT ID
+        # ====================================================
+
+        shipment_id = (
+            _generate_outbound_shipment_id()
+        )
+
+        # ====================================================
+        # 16. CREATE OUTBOUND SHIPMENT
+        #
+        # One package -> one shipment.
+        #
+        # Multiple shipments may share the same fulfillment.
         # ====================================================
 
         db.execute(
@@ -639,12 +745,11 @@ ORDER:
         )
 
         # ====================================================
-        # 15. UPDATE FULFILLMENT
+        # 17. KEEP FULFILLMENT READY
         #
-        # Do NOT mark the fulfillment COMPLETED here.
-        #
-        # It remains READY while package shipments are
-        # being created and processed.
+        # ShipmentReady does not complete the fulfillment.
+        # ShipmentDelivered determines when fulfillment is
+        # finally completed.
         # ====================================================
 
         db.execute(
@@ -652,11 +757,10 @@ ORDER:
             UPDATE outbound_fulfillment
 
             SET
-                status='READY'
+                status='READY',
+                completed_at=NULL
 
             WHERE fulfillment_id=%s
-
-              AND status != 'COMPLETED'
             """,
             (
                 fulfillment_id,
@@ -664,7 +768,7 @@ ORDER:
         )
 
         # ====================================================
-        # 16. EVENT PAYLOAD
+        # 18. EVENT PAYLOAD
         # ====================================================
 
         payload = {
@@ -704,12 +808,30 @@ ORDER:
 
             },
 
+            "fulfillment":
+            {
+
+                "fulfillmentId":
+                    fulfillment_id,
+
+                "orderId":
+                    order_id,
+
+                "warehouseId":
+                    warehouse_id,
+
+                "status":
+                    "READY"
+
+            },
+
             "correlationId":
                 correlation_id
+
         }
 
         # ====================================================
-        # 17. PUBLISH EVENT
+        # 19. PUBLISH EVENT
         # ====================================================
 
         publish_event(
@@ -727,12 +849,13 @@ ORDER:
         )
 
         # ====================================================
-        # 18. LOG EVENT
+        # 20. LOG EVENT
         # ====================================================
 
         log_event_success(
             EVENT_NAME,
             {
+
                 "shipment_id":
                     shipment_id,
 
@@ -757,13 +880,17 @@ ORDER:
                 "status":
                     "READY",
 
+                "fulfillment_created":
+                    fulfillment_created,
+
                 "correlation_id":
                     correlation_id
+
             }
         )
 
         # ====================================================
-        # 19. RETURN
+        # 21. RETURN RESULT
         # ====================================================
 
         return {
@@ -791,6 +918,7 @@ ORDER:
 
             "status":
                 "READY"
+
         }
 
 

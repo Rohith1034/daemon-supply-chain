@@ -2,19 +2,13 @@ from datetime import timedelta, timezone
 import random
 import sys
 
-
 from core.db import Database
-
 from core.outbox import publish_event
-
 from core.logger import (
     log_event_success,
     log_event_failure
 )
-
-from core.simulation_clock import (
-    get_simulation_now
-)
+from core.simulation_clock import get_simulation_now
 
 
 EVENT_NAME = "ShipmentDelivered"
@@ -33,11 +27,9 @@ def _ensure_utc(value):
     """
 
     if value is None:
-
         return None
 
     if value.tzinfo is None:
-
         return value.replace(
             tzinfo=timezone.utc
         )
@@ -58,17 +50,17 @@ def _get_delivery_time(
     """
     Generate a causally valid delivery timestamp.
 
-    ShipmentDelivered must always occur after
+    ShipmentDelivered must always happen after
     ShipmentInTransit.
 
-    When expected_delivery exists, the simulator generates:
+    Delivery scenarios:
 
         EARLY
         ON_TIME
         LATE
 
-    The final timestamp is always forced to occur after
-    ShipmentInTransit.
+    The generated timestamp is always forced to be
+    later than ShipmentInTransit.
     """
 
     in_transit_at = _ensure_utc(
@@ -80,13 +72,12 @@ def _get_delivery_time(
     )
 
     if in_transit_at is None:
-
         in_transit_at = _ensure_utc(
             get_simulation_now()
         )
 
     # ========================================================
-    # EXPECTED DELIVERY EXISTS
+    # PROMISED DELIVERY EXISTS
     # ========================================================
 
     if expected_delivery is not None:
@@ -104,7 +95,7 @@ def _get_delivery_time(
                 -
                 timedelta(
                     hours=random.randint(
-                        1,
+                        3,
                         12
                     )
                 )
@@ -138,16 +129,14 @@ def _get_delivery_time(
                 +
                 timedelta(
                     hours=random.randint(
-                        1,
+                        3,
                         24
                     )
                 )
             )
 
         # ----------------------------------------------------
-        # Causal protection.
-        #
-        # Delivery must always happen after IN_TRANSIT.
+        # Delivery must always occur after IN_TRANSIT.
         # ----------------------------------------------------
 
         minimum_delivery_time = (
@@ -164,7 +153,7 @@ def _get_delivery_time(
         )
 
     # ========================================================
-    # NO EXPECTED DELIVERY
+    # NO PROMISED DELIVERY
     # ========================================================
 
     return (
@@ -195,16 +184,16 @@ def _get_delivery_performance(
     Classify delivery performance.
 
     EARLY:
-        More than 2 hours before promised delivery.
+        More than 2 hours before promise.
 
     ON_TIME:
-        Within ±2 hours of promised delivery.
+        Within ±2 hours of promise.
 
     LATE:
-        More than 2 hours after promised delivery.
+        More than 2 hours after promise.
 
     UNKNOWN:
-        No promised delivery exists.
+        No promised delivery timestamp exists.
     """
 
     delivered_at = _ensure_utc(
@@ -216,7 +205,6 @@ def _get_delivery_performance(
     )
 
     if expected_delivery is None:
-
         return "UNKNOWN"
 
     tolerance = timedelta(
@@ -236,114 +224,100 @@ def _get_delivery_performance(
     )
 
     if delivered_at < early_boundary:
-
         return "EARLY"
 
     if delivered_at <= late_boundary:
-
         return "ON_TIME"
 
     return "LATE"
 
 
 # ============================================================
-# ORDER DELIVERY STATUS
+# ORDER PACKAGE / SHIPMENT PROGRESS
 # ============================================================
 
-def _update_order_delivery_status(
+def _get_order_delivery_progress(
     db,
     order_id
 ):
     """
-    Determine the final order status based on all outbound
-    shipments belonging to the order.
+    Determine shipment progress using PACKAGES as the
+    authoritative total.
 
-    Rules:
+    This is critical for split orders.
 
-        All shipments DELIVERED
-            -> DELIVERED
+    Example:
 
-        Some shipments DELIVERED but others are not
-            -> PARTIALLY_DELIVERED
+        ORDER
+          ├── PKG-001 -> shipment delivered
+          ├── PKG-002 -> shipment delivered
+          ├── PKG-003 -> shipment exists
+          └── PKG-004 -> shipment not created yet
 
-        No shipments DELIVERED
-            -> current status remains unchanged
+    Total packages = 4
+
+    Delivered shipments = 2
+
+    Remaining packages = 2
+
+    The order is therefore NOT complete.
+
+    The important rule is:
+
+        total packages belong to the order
+        delivered shipments represent completed packages
     """
 
-    shipment_statuses = db.fetch_all(
+    row = db.fetch_one(
         """
         SELECT
-            shipment_status
-        FROM outbound_shipments
-        WHERE order_id=%s
+            (
+                SELECT COUNT(*)
+                FROM packages
+                WHERE order_id=%s
+            ) AS total_packages,
+
+            (
+                SELECT COUNT(*)
+                FROM outbound_shipments
+                WHERE order_id=%s
+                  AND shipment_status='DELIVERED'
+            ) AS delivered_shipments
         """,
         (
             order_id,
+            order_id
         )
     )
 
-    if not shipment_statuses:
+    if not row:
+        return {
+            "total_packages": 0,
+            "delivered_shipments": 0,
+            "remaining_packages": 0
+        }
 
-        raise Exception(
-            f"""
-No outbound shipments found while updating
-order delivery status.
-
-ORDER:
-{order_id}
-"""
-        )
-
-    total_shipments = len(
-        shipment_statuses
+    total_packages = int(
+        row["total_packages"]
+        or 0
     )
 
-    delivered_shipments = sum(
-        1
-        for row in shipment_statuses
-        if row["shipment_status"] == "DELIVERED"
+    delivered_shipments = int(
+        row["delivered_shipments"]
+        or 0
     )
 
-    if delivered_shipments == total_shipments:
-
-        final_status = "DELIVERED"
-
-    elif delivered_shipments > 0:
-
-        final_status = "PARTIALLY_DELIVERED"
-
-    else:
-
-        final_status = None
-
-    if final_status:
-
-        db.execute(
-            """
-            UPDATE orders
-            SET
-                order_status=%s
-            WHERE order_id=%s
-            """,
-            (
-                final_status,
-                order_id
-            )
-        )
+    remaining_packages = max(
+        total_packages
+        -
+        delivered_shipments,
+        0
+    )
 
     return {
-        "total_shipments":
-            total_shipments,
-
-        "delivered_shipments":
-            delivered_shipments,
-
-        "remaining_shipments":
-            total_shipments -
-            delivered_shipments,
-
-        "order_status":
-            final_status
+        "total_packages": total_packages,
+        "delivered_shipments": delivered_shipments,
+        "remaining_packages": remaining_packages
     }
 
 
@@ -359,9 +333,6 @@ def generate_shipment_delivered(
 
         # ====================================================
         # 1. FIND IN-TRANSIT OUTBOUND SHIPMENT
-        #
-        # Shipment and transportation are locked here.
-        # Tracking is locked separately.
         # ====================================================
 
         if shipment_id:
@@ -374,7 +345,7 @@ def generate_shipment_delivered(
                     os.order_id,
                     os.package_id,
 
-                    of.warehouse_id,
+                    obf.warehouse_id,
 
                     os.shipment_status,
                     os.shipment_date,
@@ -394,8 +365,8 @@ def generate_shipment_delivered(
 
                 FROM outbound_shipments os
 
-                INNER JOIN outbound_fulfillment of
-                    ON of.fulfillment_id =
+                INNER JOIN outbound_fulfillment obf
+                    ON obf.fulfillment_id =
                        os.fulfillment_id
 
                 INNER JOIN outbound_shipment_transportation ost
@@ -425,7 +396,7 @@ def generate_shipment_delivered(
                     os.order_id,
                     os.package_id,
 
-                    of.warehouse_id,
+                    obf.warehouse_id,
 
                     os.shipment_status,
                     os.shipment_date,
@@ -445,8 +416,8 @@ def generate_shipment_delivered(
 
                 FROM outbound_shipments os
 
-                INNER JOIN outbound_fulfillment of
-                    ON of.fulfillment_id =
+                INNER JOIN outbound_fulfillment obf
+                    ON obf.fulfillment_id =
                        os.fulfillment_id
 
                 INNER JOIN outbound_shipment_transportation ost
@@ -465,7 +436,7 @@ def generate_shipment_delivered(
             )
 
         # ====================================================
-        # 2. VERIFY SHIPMENT EXISTS
+        # 2. VERIFY SHIPMENT
         # ====================================================
 
         if not shipment:
@@ -528,7 +499,7 @@ def generate_shipment_delivered(
         )
 
         # ====================================================
-        # 4. REQUIRED FIELD VALIDATION
+        # 4. VALIDATE REQUIRED DATA
         # ====================================================
 
         required_values = {
@@ -574,9 +545,11 @@ def generate_shipment_delivered(
         # 5. VALIDATE TRANSPORTATION STATE
         # ====================================================
 
-        transportation_status = shipment[
-            "transportation_status"
-        ]
+        transportation_status = (
+            shipment[
+                "transportation_status"
+            ]
+        )
 
         if transportation_status != "IN_TRANSIT":
 
@@ -584,29 +557,17 @@ def generate_shipment_delivered(
                 f"""
 Transportation is not IN_TRANSIT.
 
-SHIPMENT:
-{shipment_id}
-
-STATUS:
-{transportation_status}
+SHIPMENT: {shipment_id}
+STATUS: {transportation_status}
 """
             )
 
         # ====================================================
-        # 6. FIND EXISTING IN-TRANSIT TRACKING
+        # 6. FETCH EXISTING TRACKING RECORD
         #
-        # Lifecycle:
-        #
-        # ShipmentPickedUp
-        #     PICKED_UP
-        #
-        # ShipmentInTransit
-        #     IN_TRANSIT
-        #
-        # ShipmentDelivered
-        #     DELIVERED
-        #
-        # Same tracking_id is reused.
+        # ShipmentPickedUp creates the row.
+        # ShipmentInTransit changes it to IN_TRANSIT.
+        # ShipmentDelivered changes the same row to DELIVERED.
         # ====================================================
 
         tracking = db.fetch_one(
@@ -648,22 +609,18 @@ STATUS:
                 f"""
 IN_TRANSIT tracking record not found.
 
-SHIPMENT:
-{shipment_id}
+SHIPMENT: {shipment_id}
 
 Expected lifecycle:
 
 ShipmentPickedUp
-        ↓
-PICKED_UP
+        ↓ PICKED_UP
 
 ShipmentInTransit
-        ↓
-IN_TRANSIT
+        ↓ IN_TRANSIT
 
 ShipmentDelivered
-        ↓
-DELIVERED
+        ↓ DELIVERED
 """
             )
 
@@ -672,26 +629,32 @@ DELIVERED
         ]
 
         # ====================================================
-        # 7. VALIDATE TRACKING RESOURCE MAPPING
+        # 7. VALIDATE RESOURCE MAPPING
         # ====================================================
 
         tracking_resources = [
 
             (
                 "vehicle",
-                tracking["vehicle_id"],
+                tracking[
+                    "vehicle_id"
+                ],
                 vehicle_id
             ),
 
             (
                 "trailer",
-                tracking["trailer_id"],
+                tracking[
+                    "trailer_id"
+                ],
                 trailer_id
             ),
 
             (
                 "driver",
-                tracking["driver_id"],
+                tracking[
+                    "driver_id"
+                ],
                 driver_id
             )
         ]
@@ -712,14 +675,11 @@ DELIVERED
                     f"""
 Tracking {resource_name} mismatch.
 
-SHIPMENT:
-{shipment_id}
+SHIPMENT: {shipment_id}
 
-TRANSPORTATION:
-{shipment_value}
+TRANSPORTATION: {shipment_value}
 
-TRACKING:
-{tracking_value}
+TRACKING: {tracking_value}
 """
                 )
 
@@ -727,10 +687,12 @@ TRACKING:
         # 8. DETERMINE IN-TRANSIT TIMESTAMP
         #
         # ShipmentInTransit updates outbound_shipments.updated_at
-        # to the IN_TRANSIT event timestamp.
+        # to its event timestamp.
         #
-        # That is preferred over tracking.created_at because the
-        # tracking row was originally created during pickup.
+        # Therefore updated_at is preferred.
+        #
+        # tracking.created_at is only a fallback because the
+        # tracking row was originally created by ShipmentPickedUp.
         # ====================================================
 
         in_transit_at = _ensure_utc(
@@ -769,8 +731,7 @@ TRACKING:
                 f"""
 Unable to determine IN_TRANSIT timestamp.
 
-SHIPMENT:
-{shipment_id}
+SHIPMENT: {shipment_id}
 """
             )
 
@@ -785,20 +746,18 @@ SHIPMENT:
         )
 
         # ====================================================
-        # 10. GENERATE DELIVERY TIME
+        # 10. GENERATE DELIVERY TIMESTAMP
         # ====================================================
-
-        delivered_at = _get_delivery_time(
-            in_transit_at,
-            expected_delivery
-        )
 
         delivered_at = _ensure_utc(
-            delivered_at
+            _get_delivery_time(
+                in_transit_at,
+                expected_delivery
+            )
         )
 
         # ====================================================
-        # 11. FINAL TIMELINE VALIDATION
+        # 11. TIMELINE VALIDATION
         # ====================================================
 
         if delivered_at <= in_transit_at:
@@ -807,14 +766,11 @@ SHIPMENT:
                 f"""
 Invalid delivery timeline.
 
-SHIPMENT:
-{shipment_id}
+SHIPMENT: {shipment_id}
 
-IN TRANSIT:
-{in_transit_at}
+IN TRANSIT: {in_transit_at}
 
-DELIVERED:
-{delivered_at}
+DELIVERED: {delivered_at}
 """
             )
 
@@ -839,20 +795,15 @@ DELIVERED:
 
             SET
                 shipment_status='DELIVERED',
-
                 actual_delivery=%s,
-
                 updated_at=%s
 
             WHERE shipment_id=%s
-
               AND shipment_status='IN_TRANSIT'
             """,
             (
                 delivered_at,
-
                 delivered_at,
-
                 shipment_id
             )
         )
@@ -867,29 +818,33 @@ DELIVERED:
 
             SET
                 status='DELIVERED',
-
                 updated_at=%s
 
             WHERE id=%s
-
               AND shipment_id=%s
-
               AND status='IN_TRANSIT'
             """,
             (
                 delivered_at,
-
                 transportation_id,
-
                 shipment_id
             )
         )
 
         # ====================================================
-        # 15. UPDATE TRACKING
+        # 15. UPDATE EXISTING TRACKING ROW
         #
-        # Same tracking record.
-        # No new tracking_id.
+        # IMPORTANT:
+        #
+        # Do NOT INSERT another tracking row.
+        #
+        # TRACK-XXXX remains the same throughout:
+        #
+        # PICKED_UP
+        #      ↓
+        # IN_TRANSIT
+        #      ↓
+        # DELIVERED
         # ====================================================
 
         db.execute(
@@ -898,20 +853,15 @@ DELIVERED:
 
             SET
                 status='DELIVERED',
-
                 actual_arrival=%s
 
             WHERE tracking_id=%s
-
               AND shipment_id=%s
-
               AND status='IN_TRANSIT'
             """,
             (
                 delivered_at,
-
                 tracking_id,
-
                 shipment_id
             )
         )
@@ -971,44 +921,117 @@ DELIVERED:
         )
 
         # ====================================================
-        # 19. DETERMINE ORDER DELIVERY STATUS
+        # 19. DETERMINE ORDER DELIVERY PROGRESS
         #
-        # This is the critical multi-package behavior.
+        # IMPORTANT:
         #
-        # Example:
+        # Total is based on packages, not outbound shipments.
         #
-        # Shipment 1 -> DELIVERED
-        # Shipment 2 -> IN_TRANSIT
-        # Shipment 3 -> READY
+        # This prevents:
         #
-        # Order -> PARTIALLY_DELIVERED
+        #   4 packages
+        #   1 shipment created
+        #   1 shipment delivered
         #
-        # Once all shipments are DELIVERED:
+        # from incorrectly producing:
         #
-        # Order -> DELIVERED
+        #   ORDER = DELIVERED
         # ====================================================
 
-        order_delivery = (
-            _update_order_delivery_status(
+        progress = (
+            _get_order_delivery_progress(
                 db,
                 order_id
             )
         )
 
-        order_status = (
-            order_delivery["order_status"]
+        total_packages = (
+            progress[
+                "total_packages"
+            ]
         )
 
+        delivered_shipments = (
+            progress[
+                "delivered_shipments"
+            ]
+        )
+
+        remaining_packages = (
+            progress[
+                "remaining_packages"
+            ]
+        )
+
+        if total_packages <= 0:
+
+            raise Exception(
+                f"""
+Order contains no packages.
+
+ORDER: {order_id}
+
+Cannot determine delivery completion.
+"""
+            )
+
         # ====================================================
-        # 20. COMPLETE FULFILLMENT ONLY WHEN
-        #     ALL SHIPMENTS FOR THE ORDER ARE DELIVERED
+        # 20. DETERMINE ORDER STATUS
         # ====================================================
 
         if (
-            order_status
-            ==
-            "DELIVERED"
+            remaining_packages == 0
+            and
+            delivered_shipments >= total_packages
         ):
+
+            order_status = (
+                "DELIVERED"
+            )
+
+            fulfillment_status = (
+                "COMPLETED"
+            )
+
+        else:
+
+            order_status = (
+                "PARTIALLY_DELIVERED"
+            )
+
+            fulfillment_status = (
+                "PROCESSING"
+            )
+
+        # ====================================================
+        # 21. UPDATE ORDER
+        # ====================================================
+
+        db.execute(
+            """
+            UPDATE orders
+
+            SET
+                order_status=%s
+
+            WHERE order_id=%s
+            """,
+            (
+                order_status,
+                order_id
+            )
+        )
+
+        # ====================================================
+        # 22. UPDATE OUTBOUND FULFILLMENT
+        #
+        # ONE ORDER -> ONE FULFILLMENT
+        #
+        # Fulfillment is completed only after every package
+        # belonging to the order has been delivered.
+        # ====================================================
+
+        if fulfillment_status == "COMPLETED":
 
             db.execute(
                 """
@@ -1016,45 +1039,35 @@ DELIVERED:
 
                 SET
                     status='COMPLETED',
-
                     completed_at=%s
 
                 WHERE fulfillment_id=%s
-
-                  AND status != 'COMPLETED'
                 """,
                 (
                     delivered_at,
-
                     fulfillment_id
                 )
             )
 
         else:
 
-            # ------------------------------------------------
-            # Fulfillment remains active while packages are
-            # still being transported.
-            # ------------------------------------------------
-
             db.execute(
                 """
                 UPDATE outbound_fulfillment
 
                 SET
-                    status='PROCESSING'
+                    status='PROCESSING',
+                    completed_at=NULL
 
                 WHERE fulfillment_id=%s
-
-                  AND status != 'COMPLETED'
                 """,
                 (
-                    fulfillment_id
+                    fulfillment_id,
                 )
             )
 
         # ====================================================
-        # 21. EVENT PAYLOAD
+        # 23. EVENT PAYLOAD
         # ====================================================
 
         payload = {
@@ -1065,8 +1078,7 @@ DELIVERED:
             "occurredAt":
                 delivered_at.isoformat(),
 
-            "shipment":
-            {
+            "shipment": {
 
                 "shipmentId":
                     shipment_id,
@@ -1113,37 +1125,9 @@ DELIVERED:
 
                 "deliveryPerformance":
                     delivery_performance
-
             },
 
-            "order":
-            {
-
-                "orderId":
-                    order_id,
-
-                "orderStatus":
-                    order_status,
-
-                "totalShipments":
-                    order_delivery[
-                        "total_shipments"
-                    ],
-
-                "deliveredShipments":
-                    order_delivery[
-                        "delivered_shipments"
-                    ],
-
-                "remainingShipments":
-                    order_delivery[
-                        "remaining_shipments"
-                    ]
-
-            },
-
-            "transportation":
-            {
+            "transportation": {
 
                 "transportationId":
                     transportation_id,
@@ -1159,11 +1143,9 @@ DELIVERED:
 
                 "driverStatus":
                     "ACTIVE"
-
             },
 
-            "tracking":
-            {
+            "tracking": {
 
                 "trackingId":
                     tracking_id,
@@ -1189,34 +1171,54 @@ DELIVERED:
 
                 "actualArrival":
                     delivered_at.isoformat()
+            },
 
+            "order": {
+
+                "orderId":
+                    order_id,
+
+                "orderStatus":
+                    order_status,
+
+                "totalPackages":
+                    total_packages,
+
+                "deliveredShipments":
+                    delivered_shipments,
+
+                "remainingPackages":
+                    remaining_packages
+            },
+
+            "fulfillment": {
+
+                "fulfillmentId":
+                    fulfillment_id,
+
+                "status":
+                    fulfillment_status
             },
 
             "correlationId":
                 correlation_id
-
         }
 
         # ====================================================
-        # 22. PUBLISH OUTBOX EVENT
+        # 24. PUBLISH OUTBOX EVENT
         # ====================================================
 
         publish_event(
             db=db,
-
             event_type=EVENT_NAME,
-
             aggregate_type="OUTBOUND_SHIPMENT",
-
             aggregate_id=shipment_id,
-
             correlation_id=correlation_id,
-
             payload=payload
         )
 
         # ====================================================
-        # 23. LOG EVENT
+        # 25. LOG EVENT
         # ====================================================
 
         log_event_success(
@@ -1265,32 +1267,28 @@ DELIVERED:
                 "order_status":
                     order_status,
 
-                "total_shipments":
-                    order_delivery[
-                        "total_shipments"
-                    ],
+                "fulfillment_status":
+                    fulfillment_status,
+
+                "total_packages":
+                    total_packages,
 
                 "delivered_shipments":
-                    order_delivery[
-                        "delivered_shipments"
-                    ],
+                    delivered_shipments,
 
-                "remaining_shipments":
-                    order_delivery[
-                        "remaining_shipments"
-                    ],
+                "remaining_packages":
+                    remaining_packages,
 
                 "status":
                     "DELIVERED",
 
                 "correlation_id":
                     correlation_id
-
             }
         )
 
         # ====================================================
-        # 24. RETURN
+        # 26. RETURN RESULT
         # ====================================================
 
         return {
@@ -1325,6 +1323,12 @@ DELIVERED:
             "status":
                 "DELIVERED",
 
+            "order_status":
+                order_status,
+
+            "fulfillment_status":
+                fulfillment_status,
+
             "in_transit_at":
                 in_transit_at,
 
@@ -1337,23 +1341,14 @@ DELIVERED:
             "delivery_performance":
                 delivery_performance,
 
-            "order_status":
-                order_status,
-
-            "total_shipments":
-                order_delivery[
-                    "total_shipments"
-                ],
+            "total_packages":
+                total_packages,
 
             "delivered_shipments":
-                order_delivery[
-                    "delivered_shipments"
-                ],
+                delivered_shipments,
 
-            "remaining_shipments":
-                order_delivery[
-                    "remaining_shipments"
-                ]
+            "remaining_packages":
+                remaining_packages
         }
 
 
@@ -1383,4 +1378,3 @@ if __name__ == "__main__":
         )
 
         raise
-
