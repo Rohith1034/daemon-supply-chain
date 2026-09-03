@@ -3,10 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from api.routes.simulator_routes import router as simulator_router
 
+
 app = FastAPI(
     title="Daemon Supply Chain Simulator API",
-    version="1.0.0"
+    version="1.0.0",
+    description="Minimal API for running the Daemon Supply Chain simulation."
 )
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -16,7 +19,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(simulator_router)
+
+app.include_router(
+    simulator_router
+)
 
 
 @app.get("/")

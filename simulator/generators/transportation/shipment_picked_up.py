@@ -1,7 +1,6 @@
 from datetime import timedelta, timezone
 import random
 
-
 from core.db import Database
 
 from core.ids import (
@@ -20,7 +19,6 @@ from core.simulation_clock import (
     get_simulation_now
 )
 
-
 EVENT_NAME = "ShipmentPickedUp"
 
 
@@ -34,11 +32,9 @@ def _ensure_utc(value):
     """
 
     if value is None:
-
         return None
 
     if value.tzinfo is None:
-
         return value.replace(
             tzinfo=timezone.utc
         )
@@ -49,8 +45,8 @@ def _ensure_utc(value):
 
 
 def _get_pickup_time(
-    shipment,
-    transportation
+        shipment,
+        transportation
 ):
     """
     ShipmentPickedUp must occur after CarrierAssigned.
@@ -111,20 +107,19 @@ def _get_pickup_time(
         base_time = simulation_now
 
     return (
-        base_time +
-        timedelta(
-            minutes=random.randint(
-                30,
-                180
+            base_time +
+            timedelta(
+                minutes=random.randint(
+                    30,
+                    180
+                )
             )
-        )
     )
 
 
 def generate_shipment_picked_up(
-    shipment_id=None
+        shipment_id=None
 ):
-
     with Database() as db:
 
         # =================================================
@@ -237,7 +232,6 @@ def generate_shipment_picked_up(
         if not shipment:
 
             if shipment_id:
-
                 raise Exception(
                     f"No ASSIGNED outbound shipment found "
                     f"for shipment_id={shipment_id}"
@@ -292,7 +286,6 @@ def generate_shipment_picked_up(
         # =================================================
 
         if not fulfillment_id:
-
             raise Exception(
                 f"""
 Outbound shipment has no fulfillment_id.
@@ -303,7 +296,6 @@ SHIPMENT:
             )
 
         if not warehouse_id:
-
             raise Exception(
                 f"""
 Outbound fulfillment has no warehouse_id.
@@ -317,7 +309,6 @@ SHIPMENT:
             )
 
         if not order_id:
-
             raise Exception(
                 f"""
 Outbound shipment has no order_id.
@@ -328,7 +319,6 @@ SHIPMENT:
             )
 
         if not package_id:
-
             raise Exception(
                 f"""
 Outbound shipment has no package_id.
@@ -339,7 +329,6 @@ SHIPMENT:
             )
 
         if not vehicle_id:
-
             raise Exception(
                 f"""
 Outbound shipment has no assigned vehicle.
@@ -350,7 +339,6 @@ SHIPMENT:
             )
 
         if not trailer_id:
-
             raise Exception(
                 f"""
 Outbound shipment has no assigned trailer.
@@ -361,7 +349,6 @@ SHIPMENT:
             )
 
         if not driver_id:
-
             raise Exception(
                 f"""
 Outbound shipment has no assigned driver.
@@ -396,7 +383,6 @@ SHIPMENT:
         if shipment[
             "transportation_status"
         ] != "ASSIGNED":
-
             raise Exception(
                 f"""
 Transportation assignment is not ASSIGNED.
@@ -427,7 +413,6 @@ STATUS:
         )
 
         if existing_loading:
-
             raise Exception(
                 f"""
 Outbound loading event already exists.
@@ -462,7 +447,6 @@ LOADING:
         )
 
         if not package:
-
             raise Exception(
                 f"""
 Package not found.
@@ -473,7 +457,6 @@ PACKAGE:
             )
 
         if package["order_id"] != order_id:
-
             raise Exception(
                 f"""
 Package/order mismatch.
@@ -490,7 +473,6 @@ SHIPMENT ORDER:
             )
 
         if package["warehouse_id"] != warehouse_id:
-
             raise Exception(
                 f"""
 Package/warehouse mismatch.
@@ -506,18 +488,25 @@ FULFILLMENT WAREHOUSE:
 """
             )
 
-        if package["package_status"] != "PACKED":
+        allowed_package_states = (
+            "PACKED",
+            "READY_FOR_SHIPMENT"
+        )
 
+        if package["package_status"] not in allowed_package_states:
             raise Exception(
                 f"""
-Package is not PACKED.
+        Package is not ready for pickup.
 
-PACKAGE:
-{package_id}
+        PACKAGE:
+        {package_id}
 
-STATUS:
-{package["package_status"]}
-"""
+        CURRENT STATUS:
+        {package["package_status"]}
+
+        ALLOWED:
+        {allowed_package_states}
+        """
             )
 
         loaded_quantity = package[
@@ -525,18 +514,17 @@ STATUS:
         ]
 
         if loaded_quantity is None or loaded_quantity <= 0:
-
             raise Exception(
                 f"""
-Invalid package quantity.
-
-PACKAGE:
-{package_id}
-
-QUANTITY:
-{loaded_quantity}
-"""
-            )
+                    Invalid package quantity.
+                    
+                    PACKAGE:
+                    {package_id}
+                    
+                    QUANTITY:
+                    {loaded_quantity}
+                    """
+                                )
 
         # =================================================
         # 9. GENERATE LOADING ID
@@ -722,79 +710,79 @@ QUANTITY:
                 picked_up_at.isoformat(),
 
             "shipment":
-            {
-                "shipmentId":
-                    shipment_id,
+                {
+                    "shipmentId":
+                        shipment_id,
 
-                "fulfillmentId":
-                    fulfillment_id,
+                    "fulfillmentId":
+                        fulfillment_id,
 
-                "orderId":
-                    order_id,
+                    "orderId":
+                        order_id,
 
-                "packageId":
-                    package_id,
+                    "packageId":
+                        package_id,
 
-                "warehouseId":
-                    warehouse_id,
+                    "warehouseId":
+                        warehouse_id,
 
-                "vehicleId":
-                    vehicle_id,
+                    "vehicleId":
+                        vehicle_id,
 
-                "trailerId":
-                    trailer_id,
+                    "trailerId":
+                        trailer_id,
 
-                "driverId":
-                    driver_id,
+                    "driverId":
+                        driver_id,
 
-                "status":
-                    "PICKED_UP",
+                    "status":
+                        "PICKED_UP",
 
-                "pickedUpAt":
-                    picked_up_at.isoformat()
-            },
+                    "pickedUpAt":
+                        picked_up_at.isoformat()
+                },
 
             "loading":
-            {
-                "loadingId":
-                    loading_id,
+                {
+                    "loadingId":
+                        loading_id,
 
-                "loadedQuantity":
-                    loaded_quantity,
+                    "loadedQuantity":
+                        loaded_quantity,
 
-                "status":
-                    "COMPLETED",
+                    "status":
+                        "COMPLETED",
 
-                "loadedAt":
-                    picked_up_at.isoformat()
-            },
+                    "loadedAt":
+                        picked_up_at.isoformat()
+                },
 
             "tracking":
-            {
-                "trackingId":
-                    tracking_id,
+                {
+                    "trackingId":
+                        tracking_id,
 
-                "status":
-                    "PICKED_UP",
+                    "status":
+                        "PICKED_UP",
 
-                "departureTime":
-                    picked_up_at.isoformat()
-            },
+                    "departureTime":
+                        picked_up_at.isoformat()
+                },
 
             "transportation":
-            {
-                "status":
-                    "PICKED_UP",
+                {
+                    "status":
+                        "PICKED_UP",
 
-                "vehicleStatus":
-                    "IN_TRANSIT",
+                    "vehicleStatus":
+                        "IN_TRANSIT",
 
-                "trailerStatus":
-                    "IN_TRANSIT",
+                    "trailerStatus":
+                        "IN_TRANSIT",
 
-                "driverStatus":
-                    "IN_TRANSIT"
-            },
+                    "driverStatus":
+                        "IN_TRANSIT"
+                },
 
             "correlationId":
                 correlation_id

@@ -1,15 +1,12 @@
 from datetime import timedelta
 import random
 
-
 from core.db import Database
 from core.outbox import publish_event
-
 from core.logger import (
     log_event_success,
     log_event_failure
 )
-
 from core.simulation_clock import (
     get_simulation_now
 )
@@ -17,6 +14,10 @@ from core.simulation_clock import (
 
 EVENT_NAME = "OrderItemCreated"
 
+
+# ============================================================
+# TIME HELPERS
+# ============================================================
 
 def _get_confirmed_time(order):
     """
@@ -30,19 +31,11 @@ def _get_confirmed_time(order):
 
     simulation_now = get_simulation_now()
 
-    order_date = order.get(
-        "order_date"
-    )
-
-    created_at = order.get(
-        "created_at"
-    )
-
     candidates = [
         candidate
         for candidate in [
-            order_date,
-            created_at,
+            order.get("order_date"),
+            order.get("created_at"),
             simulation_now
         ]
         if candidate is not None
@@ -53,13 +46,54 @@ def _get_confirmed_time(order):
     return (
         base_time +
         timedelta(
-            minutes=random.randint(
-                5,
-                120
-            )
+            minutes=random.randint(5, 120)
         )
     )
 
+
+# ============================================================
+# INVENTORY SELECTION
+# ============================================================
+
+def _fetch_available_inventory_rows(db, warehouse_id, limit):
+    """
+    Pull AVAILABLE stock for the order warehouse.
+
+    The result is intentionally conservative:
+    - only active products
+    - only available inventory
+    - only positive quantity
+    - prefer higher stock rows first
+    """
+
+    return db.fetch_all(
+        """
+        SELECT
+            i.inventory_id,
+            i.product_id,
+            i.available_quantity,
+            p.selling_price
+        FROM inventory i
+        JOIN products p
+            ON i.product_id = p.product_id
+        WHERE i.warehouse_id=%s
+          AND i.inventory_status='AVAILABLE'
+          AND i.available_quantity > 0
+          AND p.status='ACTIVE'
+        ORDER BY i.available_quantity DESC,
+                 i.product_id ASC
+        LIMIT %s
+        """,
+        (
+            warehouse_id,
+            limit
+        )
+    )
+
+
+# ============================================================
+# MAIN GENERATOR
+# ============================================================
 
 def generate_order_item_created(order_id=None):
 
@@ -133,7 +167,6 @@ def generate_order_item_created(order_id=None):
             )
 
         order_id = order["order_id"]
-
         warehouse_id = order["warehouse_id"]
 
         correlation_id = str(
@@ -146,75 +179,51 @@ def generate_order_item_created(order_id=None):
         # Always after OrderCreated.
         # -------------------------------------------------
 
-        confirmed_at = _get_confirmed_time(
-            order
-        )
+        confirmed_at = _get_confirmed_time(order)
 
         # -------------------------------------------------
-        # Select AVAILABLE inventory products
-        #
-        # Only inventory that has completed putaway can
-        # be used for a customer order.
+        # Pull inventory that can actually support this order
         # -------------------------------------------------
 
-        products = db.fetch_all(
-            """
-            SELECT
-                i.product_id,
-                i.available_quantity,
-                p.selling_price
-            FROM inventory i
-            JOIN products p
-                ON i.product_id = p.product_id
-            WHERE i.warehouse_id=%s
-              AND i.inventory_status='AVAILABLE'
-              AND i.available_quantity > 0
-              AND p.status='ACTIVE'
-            ORDER BY random()
-            LIMIT %s
-            """,
-            (
-                warehouse_id,
-                random.randint(
-                    1,
-                    5
-                )
-            )
+        target_item_count = random.randint(1, 4)
+
+        inventory_rows = _fetch_available_inventory_rows(
+            db=db,
+            warehouse_id=warehouse_id,
+            limit=target_item_count * 3
         )
 
-        if not products:
+        if not inventory_rows:
 
             raise Exception(
-                "No AVAILABLE inventory available for order"
+                f"No AVAILABLE inventory available for order {order_id} "
+                f"in warehouse {warehouse_id}"
             )
 
-        total_quantity = 0
-        total_amount = 0
         items = []
+        total_quantity = 0
+        total_amount = 0.0
 
         # -------------------------------------------------
-        # Create order items
+        # Create order items from available inventory only
         # -------------------------------------------------
 
-        for product in products:
+        for row in inventory_rows[:target_item_count]:
 
             available_quantity = int(
-                product["available_quantity"]
+                row["available_quantity"]
             )
 
             if available_quantity <= 0:
                 continue
 
-            quantity = random.randint(
-                1,
-                min(
-                    10,
-                    available_quantity
-                )
-            )
+            # Keep quantities conservative so allocation has
+            # a higher chance of succeeding later in the flow.
+            max_pick = min(5, available_quantity)
+            quantity = random.randint(1, max_pick)
 
             unit_price = float(
-                product["selling_price"]
+                row["selling_price"]
             )
 
             total_price = round(
@@ -239,7 +248,7 @@ def generate_order_item_created(order_id=None):
                 """,
                 (
                     order_id,
-                    product["product_id"],
+                    row["product_id"],
                     quantity,
                     unit_price,
                     total_price
@@ -252,7 +261,7 @@ def generate_order_item_created(order_id=None):
             items.append(
                 {
                     "productId":
-                        product["product_id"],
+                        row["product_id"],
 
                     "quantity":
                         quantity,
@@ -264,6 +273,79 @@ def generate_order_item_created(order_id=None):
                         total_price
                 }
             )
+
+        # -------------------------------------------------
+        # Fallback: if the first pass produced nothing,
+        # use the best available inventory rows one by one.
+        # -------------------------------------------------
+
+        if not items:
+
+            for row in inventory_rows:
+
+                available_quantity = int(
+                    row["available_quantity"]
+                )
+
+                if available_quantity <= 0:
+                    continue
+
+                quantity = 1
+
+                unit_price = float(
+                    row["selling_price"]
+                )
+
+                total_price = round(
+                    quantity * unit_price,
+                    2
+                )
+
+                db.execute(
+                    """
+                    INSERT INTO order_items
+                    (
+                        order_id,
+                        product_id,
+                        quantity,
+                        unit_price,
+                        total_price
+                    )
+                    VALUES
+                    (
+                        %s,%s,%s,%s,%s
+                    )
+                    """,
+                    (
+                        order_id,
+                        row["product_id"],
+                        quantity,
+                        unit_price,
+                        total_price
+                    )
+                )
+
+                total_quantity += quantity
+                total_amount += total_price
+
+                items.append(
+                    {
+                        "productId":
+                            row["product_id"],
+
+                        "quantity":
+                            quantity,
+
+                        "unitPrice":
+                            unit_price,
+
+                        "totalPrice":
+                            total_price
+                    }
+                )
+
+                if len(items) >= 1:
+                    break
 
         # -------------------------------------------------
         # Make sure at least one item was created
@@ -291,10 +373,7 @@ def generate_order_item_created(order_id=None):
             (
                 len(items),
                 total_quantity,
-                round(
-                    total_amount,
-                    2
-                ),
+                round(total_amount, 2),
                 order_id
             )
         )
@@ -305,9 +384,6 @@ def generate_order_item_created(order_id=None):
         #
         # This is still part of the current OrderItemCreated
         # business operation in your existing flow.
-        #
-        # Later, if you introduce a separate
-        # OrderConfirmed event, this can be split out.
         # -------------------------------------------------
 
         db.execute(
@@ -353,10 +429,7 @@ def generate_order_item_created(order_id=None):
                     total_quantity,
 
                 "totalAmount":
-                    round(
-                        total_amount,
-                        2
-                    ),
+                    round(total_amount, 2),
 
                 "confirmedAt":
                     confirmed_at.isoformat()
@@ -395,10 +468,7 @@ def generate_order_item_created(order_id=None):
                     total_quantity,
 
                 "amount":
-                    round(
-                        total_amount,
-                        2
-                    ),
+                    round(total_amount, 2),
 
                 "confirmed_at":
                     confirmed_at,
@@ -408,6 +478,18 @@ def generate_order_item_created(order_id=None):
             }
         )
 
+        return {
+            "order_id":
+                order_id,
+
+            "items":
+                items
+        }
+
+
+# ============================================================
+# CLI ENTRY POINT
+# ============================================================
 
 if __name__ == "__main__":
 

@@ -193,6 +193,28 @@ TRANSPORTATION_FLOW = [
 
 
 # =====================================================
+# TRANSPORTATION STATE ORDER
+# =====================================================
+
+TRANSPORTATION_EVENT_INDEX = {
+    "ShipmentReady": 0,
+    "CarrierAssigned": 1,
+    "ShipmentPickedUp": 2,
+    "ShipmentInTransit": 3,
+    "ShipmentDelivered": 4
+}
+
+
+TRANSPORTATION_STATUS_INDEX = {
+    "READY": 0,
+    "ASSIGNED": 1,
+    "PICKED_UP": 2,
+    "IN_TRANSIT": 3,
+    "DELIVERED": 5
+}
+
+
+# =====================================================
 # DATABASE CONNECTION
 # =====================================================
 
@@ -396,9 +418,11 @@ def get_packed_package_ids(
     Return every PACKED package belonging to the
     supplied order.
 
-    Each package will receive its own outbound
-    shipment because outbound_shipments.package_id
-    represents one package.
+    A package may already have an outbound shipment.
+    The transportation flow will inspect that shipment
+    and resume from its current state.
+
+    A DELIVERED shipment will be skipped completely.
     """
 
     with get_db() as conn:
@@ -436,7 +460,7 @@ def get_packed_package_ids(
 
 
 # =====================================================
-# OUTBOUND SHIPMENT FOR EXACT PACKAGE
+# OUTBOUND SHIPMENT DETAILS FOR EXACT PACKAGE
 # =====================================================
 
 def get_outbound_shipment_for_package(
@@ -450,7 +474,9 @@ def get_outbound_shipment_for_package(
             cur.execute(
                 """
                 SELECT
-                    shipment_id
+                    shipment_id,
+                    shipment_status,
+                    fulfillment_id
                 FROM outbound_shipments
                 WHERE package_id=%s
                 ORDER BY created_at ASC
@@ -467,7 +493,11 @@ def get_outbound_shipment_for_package(
 
         return None
 
-    return row[0]
+    return {
+        "shipment_id": row[0],
+        "shipment_status": row[1],
+        "fulfillment_id": row[2]
+    }
 
 
 # =====================================================
@@ -1077,8 +1107,6 @@ def build_static_event_args(
 
     # =================================================
     # TRANSPORTATION
-    #
-    # These use the package currently being processed.
     # =================================================
 
     elif event == "ShipmentReady":
@@ -1209,13 +1237,13 @@ def update_context_after_static_event(
             "current_package_id"
         ]
 
-        shipment_id = (
+        shipment_details = (
             get_outbound_shipment_for_package(
                 package_id
             )
         )
 
-        if not shipment_id:
+        if not shipment_details:
 
             raise Exception(
                 f"""
@@ -1227,6 +1255,12 @@ PACKAGE:
 """
             )
 
+        shipment_id = (
+            shipment_details[
+                "shipment_id"
+            ]
+        )
+
         context[
             "current_outbound_shipment_id"
         ] = shipment_id
@@ -1234,9 +1268,9 @@ PACKAGE:
         context[
             "current_outbound_fulfillment_id"
         ] = (
-            get_outbound_fulfillment_id(
-                shipment_id
-            )
+            shipment_details[
+                "fulfillment_id"
+            ]
         )
 
         print(
@@ -1285,19 +1319,25 @@ SHIPMENT:
         context[
             "current_vehicle_id"
         ] = (
-            transportation["vehicle_id"]
+            transportation[
+                "vehicle_id"
+            ]
         )
 
         context[
             "current_trailer_id"
         ] = (
-            transportation["trailer_id"]
+            transportation[
+                "trailer_id"
+            ]
         )
 
         context[
             "current_driver_id"
         ] = (
-            transportation["driver_id"]
+            transportation[
+                "driver_id"
+            ]
         )
 
         print(
@@ -1494,10 +1534,6 @@ def execute_picking_tasks(
             current_status
         )
 
-        # ---------------------------------------------
-        # START
-        # ---------------------------------------------
-
         if current_status == "CREATED":
 
             result = execute_event(
@@ -1539,10 +1575,6 @@ def execute_picking_tasks(
                 f"{current_status} for {task_id}"
             )
 
-        # ---------------------------------------------
-        # COMPLETE
-        # ---------------------------------------------
-
         current_status = get_task_status(
             task_id
         )
@@ -1564,10 +1596,6 @@ def execute_picking_tasks(
             if result["status"] != "SUCCESS":
 
                 return False
-
-        # ---------------------------------------------
-        # VERIFY
-        # ---------------------------------------------
 
         final_status = get_task_status(
             task_id
@@ -1785,10 +1813,6 @@ def execute_packing_tasks(
             current_status
         )
 
-        # ---------------------------------------------
-        # START
-        # ---------------------------------------------
-
         if current_status == "CREATED":
 
             result = execute_event(
@@ -1830,10 +1854,6 @@ def execute_packing_tasks(
                 f"{current_status} for {task_id}"
             )
 
-        # ---------------------------------------------
-        # COMPLETE
-        # ---------------------------------------------
-
         current_status = get_task_status(
             task_id
         )
@@ -1855,10 +1875,6 @@ def execute_packing_tasks(
             if result["status"] != "SUCCESS":
 
                 return False
-
-        # ---------------------------------------------
-        # VERIFY
-        # ---------------------------------------------
 
         final_status = get_task_status(
             task_id
@@ -1973,94 +1989,147 @@ def execute_transportation_for_packages(
         )
         print("=" * 70)
 
-        existing_shipment = (
+        # =================================================
+        # FIND EXISTING SHIPMENT
+        # =================================================
+
+        shipment_details = (
             get_outbound_shipment_for_package(
                 package_id
             )
         )
 
-        # ---------------------------------------------
-        # If the shipment already exists, recover it.
-        # ---------------------------------------------
+        if shipment_details:
 
-        if existing_shipment:
+            shipment_id = (
+                shipment_details[
+                    "shipment_id"
+                ]
+            )
+
+            shipment_status = (
+                shipment_details[
+                    "shipment_status"
+                ]
+            )
+
+            fulfillment_id = (
+                shipment_details[
+                    "fulfillment_id"
+                ]
+            )
 
             context[
                 "current_outbound_shipment_id"
-            ] = existing_shipment
+            ] = shipment_id
 
             context[
                 "current_outbound_fulfillment_id"
-            ] = (
-                get_outbound_fulfillment_id(
-                    existing_shipment
-                )
-            )
+            ] = fulfillment_id
 
             print(
                 "Existing outbound shipment found:",
-                existing_shipment
+                shipment_id
             )
 
-        # ---------------------------------------------
-        # Run transportation events.
-        # ---------------------------------------------
+            print(
+                "Current shipment status:",
+                shipment_status
+            )
 
-        for event, file in (
-            TRANSPORTATION_FLOW
-        ):
+            # =================================================
+            # ALREADY DELIVERED
+            #
+            # Nothing else should happen for this package.
+            # =================================================
 
-            # -----------------------------------------
-            # Skip ShipmentReady when shipment already
-            # exists for this package.
-            # -----------------------------------------
+            if shipment_status == "DELIVERED":
 
-            if (
-                event == "ShipmentReady"
-                and
-                context[
-                    "current_outbound_shipment_id"
-                ]
-            ):
+                print()
+                print(
+                    "Shipment already DELIVERED for package:",
+                    package_id
+                )
 
                 print(
-                    "ShipmentReady already completed "
-                    "for package:",
+                    "Skipping transportation flow."
+                )
+
+                tracking_id = (
+                    get_outbound_tracking_id(
+                        shipment_id
+                    )
+                )
+
+                if tracking_id:
+
+                    context[
+                        "current_tracking_id"
+                    ] = tracking_id
+
+                transportation = (
+                    get_outbound_transportation(
+                        shipment_id
+                    )
+                )
+
+                if transportation:
+
+                    context[
+                        "current_vehicle_id"
+                    ] = (
+                        transportation[
+                            "vehicle_id"
+                        ]
+                    )
+
+                    context[
+                        "current_trailer_id"
+                    ] = (
+                        transportation[
+                            "trailer_id"
+                        ]
+                    )
+
+                    context[
+                        "current_driver_id"
+                    ] = (
+                        transportation[
+                            "driver_id"
+                        ]
+                    )
+
+                print(
+                    "TRANSPORTATION ALREADY COMPLETED FOR PACKAGE:",
                     package_id
                 )
 
                 continue
 
-            # -----------------------------------------
-            # Before later events, make sure shipment ID
-            # exists.
-            # -----------------------------------------
+        # =================================================
+        # EXECUTE TRANSPORTATION EVENTS
+        #
+        # If a shipment already exists, resume from its
+        # current state instead of restarting at READY.
+        # =================================================
 
-            if event != "ShipmentReady":
+        for event, file in (
+            TRANSPORTATION_FLOW
+        ):
 
-                shipment_id = context.get(
-                    "current_outbound_shipment_id"
-                )
+            # ---------------------------------------------
+            # No shipment exists yet.
+            #
+            # ShipmentReady is required first.
+            # ---------------------------------------------
 
-                if not shipment_id:
+            if not shipment_details:
 
-                    existing_shipment = (
-                        get_outbound_shipment_for_package(
-                            package_id
-                        )
-                    )
+                if event != "ShipmentReady":
 
-                    if existing_shipment:
-
-                        context[
-                            "current_outbound_shipment_id"
-                        ] = existing_shipment
-
-                    else:
-
-                        raise Exception(
-                            f"""
-No outbound shipment available for package:
+                    raise Exception(
+                        f"""
+No outbound shipment exists for package.
 
 PACKAGE:
 {package_id}
@@ -2068,18 +2137,340 @@ PACKAGE:
 EVENT:
 {event}
 """
-                        )
+                    )
 
-            result = execute_static_flow_event(
-                event,
-                file,
-                context,
-                report
+                result = (
+                    execute_static_flow_event(
+                        event,
+                        file,
+                        context,
+                        report
+                    )
+                )
+
+                if not result:
+
+                    return False
+
+                # Refresh shipment state after creation.
+                shipment_details = (
+                    get_outbound_shipment_for_package(
+                        package_id
+                    )
+                )
+
+                if not shipment_details:
+
+                    raise Exception(
+                        f"""
+ShipmentReady completed but shipment
+could not be found afterward.
+
+PACKAGE:
+{package_id}
+"""
+                    )
+
+                continue
+
+            # ---------------------------------------------
+            # Shipment already exists.
+            #
+            # Determine what event is required next.
+            # ---------------------------------------------
+
+            shipment_status = (
+                shipment_details[
+                    "shipment_status"
+                ]
+            )
+
+            # ---------------------------------------------
+            # READY
+            # ---------------------------------------------
+
+            if shipment_status == "READY":
+
+                if event == "ShipmentReady":
+
+                    print(
+                        "ShipmentReady already completed "
+                        "for package:",
+                        package_id
+                    )
+
+                    continue
+
+            # ---------------------------------------------
+            # ASSIGNED
+            # ---------------------------------------------
+
+            elif shipment_status == "ASSIGNED":
+
+                if event in (
+                    "ShipmentReady",
+                    "CarrierAssigned"
+                ):
+
+                    print(
+                        f"{event} already completed "
+                        f"for package {package_id}"
+                    )
+
+                    continue
+
+            # ---------------------------------------------
+            # PICKED UP
+            # ---------------------------------------------
+
+            elif shipment_status == "PICKED_UP":
+
+                if event in (
+                    "ShipmentReady",
+                    "CarrierAssigned",
+                    "ShipmentPickedUp"
+                ):
+
+                    print(
+                        f"{event} already completed "
+                        f"for package {package_id}"
+                    )
+
+                    continue
+
+            # ---------------------------------------------
+            # IN TRANSIT
+            # ---------------------------------------------
+
+            elif shipment_status == "IN_TRANSIT":
+
+                if event in (
+                    "ShipmentReady",
+                    "CarrierAssigned",
+                    "ShipmentPickedUp",
+                    "ShipmentInTransit"
+                ):
+
+                    print(
+                        f"{event} already completed "
+                        f"for package {package_id}"
+                    )
+
+                    continue
+
+            # ---------------------------------------------
+            # DELIVERED
+            #
+            # This branch normally gets handled above,
+            # but keep it here for safety.
+            # ---------------------------------------------
+
+            elif shipment_status == "DELIVERED":
+
+                print(
+                    "Shipment already DELIVERED for package:",
+                    package_id
+                )
+
+                break
+
+            # ---------------------------------------------
+            # Unsupported status
+            # ---------------------------------------------
+
+            elif shipment_status not in (
+                "READY",
+                "ASSIGNED",
+                "PICKED_UP",
+                "IN_TRANSIT"
+            ):
+
+                raise Exception(
+                    f"""
+Unsupported outbound shipment status.
+
+PACKAGE:
+{package_id}
+
+SHIPMENT:
+{shipment_details["shipment_id"]}
+
+STATUS:
+{shipment_status}
+"""
+                )
+
+            # ---------------------------------------------
+            # Refresh context before later events.
+            # ---------------------------------------------
+
+            context[
+                "current_outbound_shipment_id"
+            ] = (
+                shipment_details[
+                    "shipment_id"
+                ]
+            )
+
+            context[
+                "current_outbound_fulfillment_id"
+            ] = (
+                shipment_details[
+                    "fulfillment_id"
+                ]
+            )
+
+            # ---------------------------------------------
+            # Execute the required event.
+            # ---------------------------------------------
+
+            result = (
+                execute_static_flow_event(
+                    event,
+                    file,
+                    context,
+                    report
+                )
             )
 
             if not result:
 
                 return False
+
+            # ---------------------------------------------
+            # Refresh shipment state after event.
+            # ---------------------------------------------
+
+            shipment_details = (
+                get_outbound_shipment_for_package(
+                    package_id
+                )
+            )
+
+            if not shipment_details:
+
+                raise Exception(
+                    f"""
+Outbound shipment disappeared after event.
+
+PACKAGE:
+{package_id}
+
+EVENT:
+{event}
+"""
+                )
+
+            # ---------------------------------------------
+            # If shipment has now reached DELIVERED,
+            # stop processing further events for package.
+            # ---------------------------------------------
+
+            if (
+                shipment_details[
+                    "shipment_status"
+                ]
+                == "DELIVERED"
+            ):
+
+                break
+
+        # =================================================
+        # FINAL PACKAGE STATUS
+        # =================================================
+
+        final_shipment = (
+            get_outbound_shipment_for_package(
+                package_id
+            )
+        )
+
+        if final_shipment:
+
+            final_status = (
+                final_shipment[
+                    "shipment_status"
+                ]
+            )
+
+            context[
+                "current_outbound_shipment_id"
+            ] = (
+                final_shipment[
+                    "shipment_id"
+                ]
+            )
+
+            context[
+                "current_outbound_fulfillment_id"
+            ] = (
+                final_shipment[
+                    "fulfillment_id"
+                ]
+            )
+
+            tracking_id = (
+                get_outbound_tracking_id(
+                    final_shipment[
+                        "shipment_id"
+                    ]
+                )
+            )
+
+            context[
+                "current_tracking_id"
+            ] = tracking_id
+
+            transportation = (
+                get_outbound_transportation(
+                    final_shipment[
+                        "shipment_id"
+                    ]
+                )
+            )
+
+            if transportation:
+
+                context[
+                    "current_vehicle_id"
+                ] = (
+                    transportation[
+                        "vehicle_id"
+                    ]
+                )
+
+                context[
+                    "current_trailer_id"
+                ] = (
+                    transportation[
+                        "trailer_id"
+                    ]
+                )
+
+                context[
+                    "current_driver_id"
+                ] = (
+                    transportation[
+                        "driver_id"
+                    ]
+                )
+
+            if final_status != "DELIVERED":
+
+                raise Exception(
+                    f"""
+Transportation flow did not finish.
+
+PACKAGE:
+{package_id}
+
+SHIPMENT:
+{final_shipment["shipment_id"]}
+
+FINAL STATUS:
+{final_status}
+"""
+                )
 
         print()
         print(
@@ -2182,44 +2573,6 @@ Context:
     )
 
     return True
-
-
-# =====================================================
-# SAVE REPORT
-# =====================================================
-
-def save_report(
-    report
-):
-
-    os.makedirs(
-        os.path.dirname(
-            OUTPUT_FILE
-        ),
-        exist_ok=True
-    )
-
-    with open(
-        OUTPUT_FILE,
-        "w",
-        encoding="utf-8"
-    ) as file_handle:
-
-        json.dump(
-            report,
-            file_handle,
-            indent=4,
-            default=json_serializer
-        )
-
-    print()
-    print(
-        "REPORT GENERATED:"
-    )
-
-    print(
-        OUTPUT_FILE
-    )
 
 
 # =====================================================
@@ -2532,6 +2885,44 @@ def main():
         save_report(
             report
         )
+
+
+# =====================================================
+# SAVE REPORT
+# =====================================================
+
+def save_report(
+    report
+):
+
+    os.makedirs(
+        os.path.dirname(
+            OUTPUT_FILE
+        ),
+        exist_ok=True
+    )
+
+    with open(
+        OUTPUT_FILE,
+        "w",
+        encoding="utf-8"
+    ) as file_handle:
+
+        json.dump(
+            report,
+            file_handle,
+            indent=4,
+            default=json_serializer
+        )
+
+    print()
+    print(
+        "REPORT GENERATED:"
+    )
+
+    print(
+        OUTPUT_FILE
+    )
 
 
 # =====================================================
