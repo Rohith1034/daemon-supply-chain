@@ -85,7 +85,7 @@ INBOUND_FLOW = [
 
     (
         "ReceivingTaskStarted",
-        "generators/warehouse/task_started.py"
+        "generators/warehouse/receiving_task_started.py"
     ),
 
     (
@@ -139,7 +139,7 @@ OUTBOUND_INITIAL_FLOW = [
 # =====================================================
 
 PICKING_STARTED_FILE = (
-    "generators/warehouse/task_started.py"
+    "generators/warehouse/receiving_task_started.py"
 )
 
 PICKING_COMPLETED_FILE = (
@@ -151,7 +151,7 @@ PACKING_CREATED_FILE = (
 )
 
 PACKING_STARTED_FILE = (
-    "generators/warehouse/task_started.py"
+    "generators/warehouse/receiving_task_started.py"
 )
 
 PACKING_COMPLETED_FILE = (

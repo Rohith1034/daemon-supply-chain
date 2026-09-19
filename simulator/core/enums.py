@@ -21,22 +21,17 @@ class POStatus(str, Enum):
 # ======================================
 
 class ShipmentStatus(str, Enum):
-
     CREATED = "CREATED"
+
+    READY = "READY"
 
     LOADED = "LOADED"
 
     DISPATCHED = "DISPATCHED"
 
-    IN_TRANSIT = "IN_TRANSIT"
-
-    DELAYED = "DELAYED"
-
     ARRIVED = "ARRIVED"
 
-    RECEIVING = "RECEIVING"
-
-    RECEIVED = "RECEIVED"
+    IN_TRANSIT = "IN_TRANSIT"
 
     DELIVERED = "DELIVERED"
 

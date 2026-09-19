@@ -20,47 +20,31 @@ EVENT_NAME = "ReceivingTaskCreated"
 
 def _get_receiving_task_time(shipment):
     """
-    Receiving task creation must happen after the shipment
-    has actually been delivered.
+    Receiving task creation happens after shipment delivery.
 
-    The shipment's actual_delivery is the primary business
-    anchor. The simulation clock is used only when the
-    shipment delivery timestamp is unavailable.
-
-    A small warehouse processing delay is added so that
-    shipment delivery and task creation do not always
-    occur at exactly the same timestamp.
+    Priority:
+        1. actual_delivery
+        2. shipment updated_at
+        3. shipment_date
+        4. simulation time
     """
 
     simulation_now = get_simulation_now()
 
-    delivery_time = shipment.get(
-        "actual_delivery"
-    )
-
-    shipment_updated_at = shipment.get(
-        "updated_at"
-    )
-
-    shipment_date = shipment.get(
-        "shipment_date"
-    )
-
     candidates = [
-        candidate
-        for candidate in [
-            delivery_time,
-            shipment_updated_at,
-            shipment_date,
-            simulation_now
-        ]
-        if candidate is not None
+        shipment.get("actual_delivery"),
+        shipment.get("updated_at"),
+        shipment.get("shipment_date"),
+        simulation_now
     ]
 
-    if not candidates:
-        base_time = simulation_now
-    else:
-        base_time = max(candidates)
+    candidates = [
+        value
+        for value in candidates
+        if value is not None
+    ]
+
+    base_time = max(candidates)
 
     return (
         base_time +
@@ -69,6 +53,60 @@ def _get_receiving_task_time(shipment):
                 10,
                 120
             )
+        )
+    )
+
+
+def _get_available_receiving_worker(db, warehouse_id):
+    """
+    Select worker capable of inbound receiving activity.
+    """
+
+    return db.fetch_one(
+        """
+        SELECT
+            worker_id
+        FROM workers
+        WHERE warehouse_id=%s
+          AND current_status='AVAILABLE'
+          AND employment_status='Active'
+          AND role IN
+          (
+            'Inventory Clerk',
+            'Quality Inspector',
+            'Forklift Operator',
+            'Warehouse Associate',
+            'Inbound Associate'
+          )
+        ORDER BY random()
+        LIMIT 1
+        """,
+        (
+            warehouse_id,
+        )
+    )
+
+
+def _get_receiving_location(db, warehouse_id):
+    """
+    Fetch valid warehouse location.
+
+    warehouse_tasks.location has FK dependency
+    with warehouse_locations.location_id.
+    """
+
+    return db.fetch_one(
+        """
+        SELECT
+            location_id
+        FROM warehouse_locations
+        WHERE warehouse_id=%s
+          AND status='ACTIVE'
+        ORDER BY random()
+        LIMIT 1
+        """,
+        (
+            warehouse_id,
         )
     )
 
@@ -99,10 +137,12 @@ def generate_receiving_task_created():
             """
         )
 
+
         if not shipment:
             raise Exception(
-                "No DELIVERED shipment found"
+                "No delivered shipment available"
             )
+
 
         shipment_id = shipment["shipment_id"]
 
@@ -112,44 +152,58 @@ def generate_receiving_task_created():
             shipment["correlation_id"]
         )
 
+
         quantity = shipment["total_quantity"]
 
+
         # ------------------------------------
-        # Business timestamp
-        #
-        # This must occur after the shipment
-        # has been delivered.
+        # Business time
         # ------------------------------------
 
-        created_at = _get_receiving_task_time(
+        task_time = _get_receiving_task_time(
             shipment
         )
 
+
         # ------------------------------------
-        # Pick receiving worker
+        # Select receiving worker
         # ------------------------------------
 
-        worker = db.fetch_one(
-            """
-            SELECT
-                worker_id
-            FROM workers
-            WHERE warehouse_id=%s
-              AND current_status='AVAILABLE'
-            ORDER BY random()
-            LIMIT 1
-            """,
-            (
-                warehouse_id,
-            )
+        worker = _get_available_receiving_worker(
+            db,
+            warehouse_id
         )
+
 
         if not worker:
             raise Exception(
-                "No available warehouse worker found for receiving"
+                f"No receiving worker available "
+                f"for warehouse {warehouse_id}"
             )
 
+
         worker_id = worker["worker_id"]
+
+
+        # ------------------------------------
+        # Select receiving location
+        # ------------------------------------
+
+        location = _get_receiving_location(
+            db,
+            warehouse_id
+        )
+
+
+        if not location:
+            raise Exception(
+                f"No active warehouse location found "
+                f"for warehouse {warehouse_id}"
+            )
+
+
+        location_id = location["location_id"]
+
 
         # ------------------------------------
         # Generate task id
@@ -157,10 +211,12 @@ def generate_receiving_task_created():
 
         task_id = next_task_id(db)
 
-        dock = "DOCK-001"
+
+        dock_location = "DOCK-001"
+
 
         # ------------------------------------
-        # Insert warehouse task
+        # Create warehouse receiving task
         # ------------------------------------
 
         db.execute(
@@ -181,6 +237,7 @@ def generate_receiving_task_created():
                 created_by,
                 correlation_id,
                 dock_location,
+                location,
                 expected_quantity
             )
             VALUES
@@ -188,7 +245,7 @@ def generate_receiving_task_created():
                 %s,%s,%s,%s,
                 %s,%s,%s,%s,
                 %s,%s,%s,%s,
-                %s,%s,%s
+                %s,%s,%s,%s
             )
             """,
             (
@@ -201,17 +258,30 @@ def generate_receiving_task_created():
                 "CREATED",
                 worker_id,
                 30,
-                created_at,
-                created_at,
+
+                # warehouse_tasks.created_at
+                # is timestamp without timezone
+                task_time.replace(
+                    tzinfo=None
+                ),
+
+                task_time,
+
                 "SYSTEM",
+
                 correlation_id,
-                dock,
+
+                dock_location,
+
+                location_id,
+
                 quantity
             )
         )
 
+
         # ------------------------------------
-        # Mark receiving task as created
+        # Prevent duplicate receiving tasks
         # ------------------------------------
 
         db.execute(
@@ -223,52 +293,61 @@ def generate_receiving_task_created():
             WHERE shipment_id=%s
             """,
             (
-                created_at,
+                task_time,
                 shipment_id
             )
         )
 
+
         # ------------------------------------
-        # Event payload
+        # Event Payload
         # ------------------------------------
 
         payload = {
-            "eventType":
+
+            "event_type":
                 EVENT_NAME,
 
-            "occurredAt":
-                created_at.isoformat(),
 
-            "receivingTask":
+            "occurred_at":
+                task_time.isoformat(),
+
+
+            "receiving_task":
             {
-                "taskId":
+                "task_id":
                     task_id,
 
-                "shipmentId":
+                "shipment_id":
                     shipment_id,
 
-                "warehouseId":
+                "warehouse_id":
                     warehouse_id,
 
-                "workerId":
+                "worker_id":
                     worker_id,
 
-                "dockLocation":
-                    dock,
+                "dock_location":
+                    dock_location,
 
-                "expectedQuantity":
+                "location_id":
+                    location_id,
+
+                "expected_quantity":
                     quantity,
 
                 "status":
                     "CREATED"
             },
 
-            "correlationId":
+
+            "correlation_id":
                 correlation_id
         }
 
+
         # ------------------------------------
-        # Publish Outbox Event
+        # Outbox
         # ------------------------------------
 
         publish_event(
@@ -280,8 +359,9 @@ def generate_receiving_task_created():
             payload=payload
         )
 
+
         # ------------------------------------
-        # Logging
+        # Log
         # ------------------------------------
 
         log_event_success(
@@ -299,14 +379,11 @@ def generate_receiving_task_created():
                 "worker_id":
                     worker_id,
 
-                "expected_quantity":
+                "location_id":
+                    location_id,
+
+                "quantity":
                     quantity,
-
-                "dock_location":
-                    dock,
-
-                "created_at":
-                    created_at,
 
                 "correlation_id":
                     correlation_id
@@ -314,11 +391,35 @@ def generate_receiving_task_created():
         )
 
 
+        print(
+f"""
+============================================================
+EVENT : {EVENT_NAME}
+
+TASK ID             : {task_id}
+SHIPMENT ID         : {shipment_id}
+WAREHOUSE ID        : {warehouse_id}
+WORKER ID           : {worker_id}
+LOCATION ID         : {location_id}
+QUANTITY            : {quantity}
+
+CORRELATION ID      : {correlation_id}
+
+TIME : {task_time}
+
+STATUS : SUCCESS
+============================================================
+"""
+        )
+
+
+
 if __name__ == "__main__":
 
     try:
 
         generate_receiving_task_created()
+
 
     except Exception as e:
 

@@ -1,152 +1,231 @@
-from datetime import timedelta
 import uuid
 import random
 
+from datetime import timezone
+
 from core.db import Database
-from core.ids import next_order_id
-from core.outbox import publish_event
-
 from core.logger import (
-    log_event_success,
-    log_event_failure
+    log_event_failure,
+    log_event_success
 )
-
-from core.simulation_clock import (
-    get_simulation_now
-)
+from core.outbox import publish_event
+from core.simulation_clock import get_simulation_now
 
 
 EVENT_NAME = "OrderCreated"
 
 
+# ============================================================
+# DATETIME NORMALIZER
+# ============================================================
+
+def _ensure_utc(value):
+
+    if value is None:
+        return None
+
+    if value.tzinfo is None:
+        return value.replace(
+            tzinfo=timezone.utc
+        )
+
+    return value.astimezone(
+        timezone.utc
+    )
+
+
+
+# ============================================================
+# ORDER ID GENERATOR
+# ============================================================
+
+def _generate_order_id():
+
+    return (
+        "ORD-"
+        +
+        get_simulation_now()
+        .strftime("%Y%m%d")
+        +
+        "-"
+        +
+        str(uuid.uuid4())[:8].upper()
+    )
+
+
+
+# ============================================================
+# MAIN EVENT
+# ============================================================
+
 def generate_order_created():
+
 
     with Database() as db:
 
-        # -------------------------------------------------
-        # Select customer
-        # -------------------------------------------------
+
+        print(
+            f"""
+============================================================
+PROCESSING EVENT : {EVENT_NAME}
+
+CREATING CUSTOMER ORDER
+============================================================
+"""
+        )
+
+
+        # ====================================================
+        # CORRELATION ID
+        # ====================================================
+
+        correlation_id = str(
+            uuid.uuid4()
+        )
+
+
+        simulation_now = _ensure_utc(
+            get_simulation_now()
+        )
+
+
+
+        # ====================================================
+        # SELECT CUSTOMER
+        # ====================================================
 
         customer = db.fetch_one(
             """
             SELECT
-                customer_id
+                customer_id,
+                first_name,
+                last_name,
+                city
             FROM customers
             ORDER BY random()
             LIMIT 1
             """
         )
 
+
         if not customer:
+
             raise Exception(
                 "No customer found"
             )
 
+
         customer_id = customer["customer_id"]
 
-        # -------------------------------------------------
-        # Select warehouse having AVAILABLE inventory
+
+
+        print(
+            f"""
+============================================================
+CUSTOMER SELECTED
+
+CUSTOMER ID :
+{customer_id}
+
+NAME :
+{customer["first_name"]}
+{customer["last_name"]}
+
+CITY :
+{customer["city"]}
+
+============================================================
+"""
+        )
+
+
+
+        # ====================================================
+        # SELECT WAREHOUSE
         #
         # IMPORTANT:
-        # Inventory is only eligible for outbound
-        # fulfillment after InventoryPutaway.
+        # Order creation does not check inventory
         #
-        # RECEIVED inventory must not be selected.
-        # -------------------------------------------------
+        # ====================================================
+
 
         warehouse = db.fetch_one(
             """
             SELECT
-                warehouse_id
-            FROM inventory
-            WHERE inventory_status='AVAILABLE'
-              AND available_quantity > 0
-            GROUP BY warehouse_id
+                warehouse_id,
+                warehouse_name,
+                city
+            FROM warehouses
+            WHERE warehouse_id IN
+            (
+                SELECT DISTINCT warehouse_id
+                FROM inventory
+                WHERE inventory_status='AVAILABLE'
+                  AND available_quantity > 0
+            )
             ORDER BY random()
             LIMIT 1
             """
         )
 
+
         if not warehouse:
+
             raise Exception(
-                "No warehouse with AVAILABLE inventory"
+                "No warehouse found"
             )
+
+
 
         warehouse_id = warehouse["warehouse_id"]
 
-        # -------------------------------------------------
-        # Generate order id
-        # -------------------------------------------------
 
-        order_id = next_order_id(db)
 
-        # -------------------------------------------------
-        # Simulation / business time
-        #
-        # This becomes the anchor timestamp for the
-        # complete outbound order lifecycle.
-        # -------------------------------------------------
+        print(
+            f"""
+============================================================
+WAREHOUSE SELECTED
 
-        order_date = get_simulation_now()
+WAREHOUSE ID :
+{warehouse_id}
 
-        # -------------------------------------------------
-        # Promised delivery
-        #
-        # The promised delivery date is planned at the
-        # moment the order is created.
-        #
-        # It is NEVER generated again by later shipment
-        # or delivery events.
-        # -------------------------------------------------
+NAME :
+{warehouse["warehouse_name"]}
 
-        promised_delivery = (
-            order_date +
-            timedelta(
-                days=random.randint(
-                    1,
-                    7
-                )
-            )
+CITY :
+{warehouse["city"]}
+
+============================================================
+"""
         )
 
-        # -------------------------------------------------
-        # Correlation ID
-        # -------------------------------------------------
 
-        correlation_id = str(
-            uuid.uuid4()
-        )
 
-        # -------------------------------------------------
-        # Order channel
-        # -------------------------------------------------
+        # ====================================================
+        # CREATE ORDER
+        # ====================================================
+
+        order_id = _generate_order_id()
+
+
 
         order_channel = random.choice(
             [
-                "ONLINE",
+                "WEB",
                 "MOBILE_APP",
                 "MARKETPLACE"
             ]
         )
 
-        # -------------------------------------------------
-        # Priority
-        # -------------------------------------------------
 
         priority = random.choice(
             [
                 "NORMAL",
-                "HIGH",
-                "URGENT"
+                "HIGH"
             ]
         )
 
-        # -------------------------------------------------
-        # Insert order
-        #
-        # ONLY columns existing in the current schema
-        # are used.
-        # -------------------------------------------------
+
 
         db.execute(
             """
@@ -163,15 +242,13 @@ def generate_order_created():
                 total_amount,
                 currency,
                 order_date,
-                created_at,
-                promised_delivery_date,
-                correlation_id
+                correlation_id,
+                items_created
             )
             VALUES
             (
                 %s,%s,%s,%s,%s,%s,
-                %s,%s,%s,%s,
-                %s,%s,%s,%s
+                %s,%s,%s,%s,%s,%s,%s
             )
             """,
             (
@@ -185,54 +262,99 @@ def generate_order_created():
                 0,
                 0,
                 "USD",
-                order_date,
-                order_date,
-                promised_delivery,
-                correlation_id
+                simulation_now,
+                correlation_id,
+                False
             )
         )
 
-        # -------------------------------------------------
-        # Publish event
-        # -------------------------------------------------
+
+
+        print(
+            f"""
+============================================================
+ORDER CREATED
+
+ORDER ID :
+{order_id}
+
+STATUS :
+CREATED
+
+CHANNEL :
+{order_channel}
+
+PRIORITY :
+{priority}
+
+CORRELATION ID :
+{correlation_id}
+
+============================================================
+"""
+        )
+
+
+
+        # ====================================================
+        # EVENT PAYLOAD
+        # ====================================================
 
         payload = {
-            "eventType":
+
+
+            "event_type":
                 EVENT_NAME,
 
-            "occurredAt":
-                order_date.isoformat(),
+
+            "occurred_at":
+                simulation_now.isoformat(),
+
+
 
             "order":
             {
-                "orderId":
+
+                "order_id":
                     order_id,
 
-                "customerId":
+
+                "customer_id":
                     customer_id,
 
-                "warehouseId":
+
+                "warehouse_id":
                     warehouse_id,
+
 
                 "status":
                     "CREATED",
 
+
                 "channel":
                     order_channel,
+
 
                 "priority":
                     priority,
 
-                "orderDate":
-                    order_date.isoformat(),
 
-                "promisedDeliveryDate":
-                    promised_delivery.isoformat()
+                "items_created":
+                    False
+
             },
 
-            "correlationId":
+
+            "correlation_id":
                 correlation_id
+
         }
+
+
+
+        # ====================================================
+        # OUTBOX
+        # ====================================================
 
         publish_event(
             db=db,
@@ -243,42 +365,74 @@ def generate_order_created():
             payload=payload
         )
 
-        # -------------------------------------------------
-        # Logging
-        # -------------------------------------------------
+
 
         log_event_success(
             EVENT_NAME,
             {
-                "order_id":
-                    order_id,
-
-                "customer_id":
-                    customer_id,
-
-                "warehouse_id":
-                    warehouse_id,
-
-                "status":
-                    "CREATED",
-
-                "order_date":
-                    order_date,
-
-                "promised_delivery":
-                    promised_delivery,
-
-                "correlation_id":
-                    correlation_id
+                "order_id": order_id,
+                "customer_id": customer_id,
+                "warehouse_id": warehouse_id,
+                "correlation_id": correlation_id
             }
         )
 
+
+
+        print(
+            f"""
+============================================================
+EVENT : {EVENT_NAME}
+
+STATUS : SUCCESS
+
+ORDER ID :
+{order_id}
+
+CUSTOMER :
+{customer_id}
+
+WAREHOUSE :
+{warehouse_id}
+
+============================================================
+"""
+        )
+
+
+
+        return {
+
+            "order_id":
+                order_id,
+
+            "customer_id":
+                customer_id,
+
+            "warehouse_id":
+                warehouse_id,
+
+            "status":
+                "CREATED",
+
+            "correlation_id":
+                correlation_id
+
+        }
+
+
+
+
+# ============================================================
+# MAIN
+# ============================================================
 
 if __name__ == "__main__":
 
     try:
 
         generate_order_created()
+
 
     except Exception as e:
 

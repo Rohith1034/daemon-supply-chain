@@ -2,31 +2,41 @@ from datetime import timedelta
 import random
 import uuid
 from decimal import Decimal
+from psycopg2.extras import register_uuid
+register_uuid()
 
 from core.db import Database
+
 from core.ids import (
     next_purchase_order_id
 )
+
 from core.selectors import (
     get_active_supplier,
     get_active_warehouse,
     get_supplier_products
 )
+
 from core.enums import POStatus
+
 from core.payloads import (
     build_purchase_order_created_payload
 )
+
 from core.outbox import publish_event
+
 from core.logger import (
     log_event_success,
     log_event_failure
 )
+
 from core.config import (
     MIN_PO_PRODUCTS,
     MAX_PO_PRODUCTS,
     MIN_PO_QUANTITY,
     MAX_PO_QUANTITY
 )
+
 from core.simulation_clock import (
     get_simulation_now
 )
@@ -35,110 +45,157 @@ from core.simulation_clock import (
 EVENT_NAME = "PurchaseOrderCreated"
 
 
+
 def _get_supplier_lead_time_days(supplier):
-    """
-    Return a safe positive lead time in days.
 
-    This protects the flow from invalid or missing
-    supplier lead time values.
-    """
-    lead_time = supplier.get("lead_time_days")
+    lead_time = supplier.get(
+        "lead_time_days"
+    )
 
-    if lead_time is None:
+    if not lead_time:
         return 5
 
     try:
-        lead_time = int(lead_time)
-    except (TypeError, ValueError):
+        return max(
+            int(lead_time),
+            1
+        )
+
+    except Exception:
         return 5
 
-    return max(lead_time, 1)
 
 
 def generate_purchase_order():
 
+
     with Database() as db:
 
-        # --------------------------------
-        # Select Supplier
-        # --------------------------------
+
+        # -----------------------------
+        # Supplier
+        # -----------------------------
 
         supplier = get_active_supplier(db)
 
-        # --------------------------------
-        # Select Warehouse
-        # --------------------------------
+
+        if not supplier:
+
+            raise Exception(
+                "No active supplier available"
+            )
+
+
+
+        # -----------------------------
+        # Warehouse
+        # -----------------------------
 
         warehouse = get_active_warehouse(db)
 
-        # --------------------------------
-        # Select Supplier Products
-        # --------------------------------
+
+        if not warehouse:
+
+            raise Exception(
+                "No active warehouse available"
+            )
+
+
+
+        # -----------------------------
+        # Supplier products
+        # -----------------------------
+
+        requested_products = random.randint(
+            MIN_PO_PRODUCTS,
+            MAX_PO_PRODUCTS
+        )
+
 
         products = get_supplier_products(
             db,
             supplier["supplier_id"],
-            random.randint(
-                MIN_PO_PRODUCTS,
-                MAX_PO_PRODUCTS
-            )
+            requested_products
         )
 
-        if len(products) < MIN_PO_PRODUCTS:
+
+        if not products:
+
             raise Exception(
-                "Supplier has insufficient products"
+                f"No products mapped for supplier "
+                f"{supplier['supplier_id']}"
             )
 
-        # --------------------------------
+
+        # Do not fail if supplier has fewer products
+
+        products = products[
+            :
+            requested_products
+        ]
+
+
+
+        # -----------------------------
         # IDs
-        # --------------------------------
+        # -----------------------------
 
         po_id = next_purchase_order_id(db)
 
-        # Real UUID for business correlation.
+
         correlation_id = str(uuid.uuid4())
 
-        # --------------------------------
-        # SIMULATION BUSINESS TIME
-        #
-        # This is the anchor timestamp for
-        # the Purchase Order lifecycle.
-        # All downstream events must be
-        # derived from this and move forward.
-        # --------------------------------
+
+
+        # -----------------------------
+        # Simulation time
+        # -----------------------------
 
         order_date = get_simulation_now()
 
-        # --------------------------------
-        # Expected Delivery
-        #
-        # Expected delivery must always be
-        # after the PO creation time.
-        # --------------------------------
 
-        supplier_lead_time_days = _get_supplier_lead_time_days(supplier)
+
+        lead_days = _get_supplier_lead_time_days(
+            supplier
+        )
+
 
         expected_delivery = (
-            order_date +
+            order_date
+            +
             timedelta(
-                days=supplier_lead_time_days
+                days=lead_days
             )
         )
 
-        # --------------------------------
-        # Prepare Items
-        # --------------------------------
+
+
+        # -----------------------------
+        # Prepare items
+        # -----------------------------
 
         items = []
+
         total_quantity = 0
+
         total_amount = Decimal("0")
 
+
+
         for product in products:
+
+
+            if product["cost_price"] is None:
+
+                continue
+
+
 
             quantity = random.randint(
                 MIN_PO_QUANTITY,
                 MAX_PO_QUANTITY
             )
+
 
             unit_cost = Decimal(
                 str(
@@ -146,13 +203,18 @@ def generate_purchase_order():
                 )
             )
 
+
             total_cost = (
                 quantity *
                 unit_cost
             )
 
+
             total_quantity += quantity
+
             total_amount += total_cost
+
+
 
             items.append(
                 {
@@ -163,9 +225,20 @@ def generate_purchase_order():
                 }
             )
 
-        # --------------------------------
-        # Insert Purchase Order
-        # --------------------------------
+
+
+        if not items:
+
+            raise Exception(
+                "No valid products available"
+            )
+
+
+
+        # -----------------------------
+        # Insert PO
+        # -----------------------------
+
 
         db.execute(
             """
@@ -204,16 +277,15 @@ def generate_purchase_order():
             )
         )
 
-        # --------------------------------
+
+
+        # -----------------------------
         # Insert PO Items
-        # --------------------------------
-        # total_cost is calculated in Python
-        # and stored in the payload. Database
-        # item totals can still be derived if
-        # needed by the schema.
-        # --------------------------------
+        # -----------------------------
+
 
         for item in items:
+
 
             db.execute(
                 """
@@ -237,9 +309,12 @@ def generate_purchase_order():
                 )
             )
 
-        # --------------------------------
+
+
+        # -----------------------------
         # Fetch PO
-        # --------------------------------
+        # -----------------------------
+
 
         po = db.fetch_one(
             """
@@ -252,13 +327,13 @@ def generate_purchase_order():
             )
         )
 
-        # --------------------------------
-        # Event Payload
-        # --------------------------------
 
-        payload_items = []
+
+        payload_items=[]
+
 
         for item in items:
+
             payload_items.append(
                 {
                     "product_id":
@@ -282,6 +357,8 @@ def generate_purchase_order():
                 }
             )
 
+
+
         payload = build_purchase_order_created_payload(
             po,
             supplier,
@@ -289,28 +366,33 @@ def generate_purchase_order():
             payload_items
         )
 
-        # --------------------------------
+
+
+        # -----------------------------
         # Outbox
-        # --------------------------------
+        # -----------------------------
+
 
         publish_event(
             db=db,
-            event_type="PurchaseOrderCreated",
+
+            event_type=EVENT_NAME,
+
             aggregate_type="PURCHASE_ORDER",
+
             aggregate_id=po_id,
+
             correlation_id=correlation_id,
+
             payload=payload
         )
 
-        # --------------------------------
-        # Log
-        # --------------------------------
+
 
         log_event_success(
             EVENT_NAME,
             {
-                "po_id":
-                    po_id,
+                "po_id": po_id,
 
                 "supplier_id":
                     supplier["supplier_id"],
@@ -333,23 +415,51 @@ def generate_purchase_order():
                 "expected_delivery":
                     expected_delivery,
 
-                "supplier_lead_time_days":
-                    supplier_lead_time_days,
-
                 "correlation_id":
-                    correlation_id
+                    str(correlation_id)
             }
         )
 
+        return {
 
-if __name__ == "__main__":
+            "po_id":
+                po_id,
+
+            "supplier_id":
+                supplier["supplier_id"],
+
+            "warehouse_id":
+                warehouse["warehouse_id"],
+
+            "correlation_id":
+                correlation_id,
+
+            "items":
+                len(items),
+
+            "quantity":
+                total_quantity,
+
+            "amount":
+                total_amount
+
+        }
+
+
+
+
+if __name__=="__main__":
 
     try:
+
         generate_purchase_order()
 
+
     except Exception as e:
+
         log_event_failure(
             EVENT_NAME,
             e
         )
+
         raise

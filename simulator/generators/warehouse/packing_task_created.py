@@ -1,101 +1,86 @@
-from datetime import timedelta
 import random
-import uuid
-
+import string
+from datetime import timezone
 
 from core.db import Database
-from core.ids import next_task_id
 from core.outbox import publish_event
-
 from core.logger import (
     log_event_success,
     log_event_failure
 )
-
-from core.simulation_clock import (
-    get_simulation_now
-)
+from core.simulation_clock import get_simulation_now
 
 
 EVENT_NAME = "PackingTaskCreated"
 
 
-def _get_packing_task_created_time(picking_task):
-    """
-    Calculate a causally valid PackingTaskCreated timestamp.
+# ============================================================
+# TIME HELPER
+# ============================================================
 
-    PackingTaskCreated must happen after the related
-    PickingCompleted event.
+def _ensure_utc(value):
 
-    The picking task's completion timestamp is the primary
-    and authoritative business anchor.
+    if value is None:
+        return None
 
-    The simulation clock is used only as a fallback when
-    the predecessor timestamp is unavailable.
-    """
-
-    picking_completed_at = picking_task.get(
-        "task_completed_at"
-    )
-
-    if picking_completed_at is None:
-
-        picking_completed_at = picking_task.get(
-            "completed_at"
+    if value.tzinfo is None:
+        return value.replace(
+            tzinfo=timezone.utc
         )
 
-    if picking_completed_at is None:
-
-        picking_completed_at = picking_task.get(
-            "task_started_at"
-        )
-
-    if picking_completed_at is None:
-
-        picking_completed_at = picking_task.get(
-            "created_at"
-        )
-
-    if picking_completed_at is None:
-
-        picking_completed_at = get_simulation_now()
-
-    # ---------------------------------------------
-    # Packing task creation happens shortly after
-    # picking has completed.
-    # ---------------------------------------------
-
-    return (
-        picking_completed_at +
-        timedelta(
-            minutes=random.randint(
-                5,
-                30
-            )
-        )
+    return value.astimezone(
+        timezone.utc
     )
 
 
-def generate_packing_task_created(
-    picking_task_id=None
-):
+# ============================================================
+# ID GENERATOR
+# ============================================================
+
+def _generate_task_id():
+
+    suffix = ''.join(
+        random.choices(
+            string.ascii_uppercase +
+            string.digits,
+            k=6
+        )
+    )
+
+    return f"PACK-{suffix}"
+
+
+# ============================================================
+# MAIN EVENT
+# ============================================================
+
+def generate_packing_task_created(order_id=None):
+
 
     with Database() as db:
 
-        # =================================================
-        # Find completed picking task
-        #
-        # When picking_task_id is supplied, always use
-        # that exact picking task.
-        #
-        # Without it, preserve the existing behavior of
-        # selecting the oldest completed picking task
-        # that does not yet have a packing task.
-        # =================================================
 
-        if picking_task_id:
+        print(
+            f"""
+============================================================
+PROCESSING EVENT : {EVENT_NAME}
 
-            picking_task = db.fetch_one(
+CREATING PACKING TASK
+
+============================================================
+"""
+        )
+
+
+        # ====================================================
+        # FIND COMPLETED PICKING TASKS
+        # ====================================================
+
+
+        if order_id:
+
+
+            picking_tasks = db.fetch_all(
                 """
                 SELECT
                     task_id,
@@ -103,27 +88,23 @@ def generate_packing_task_created(
                     warehouse_id,
                     product_id,
                     quantity,
-                    location,
-                    correlation_id,
-                    task_completed_at,
-                    completed_at,
-                    task_started_at,
-                    created_at
+                    correlation_id
                 FROM warehouse_tasks
-                WHERE task_id=%s
+                WHERE order_id=%s
                   AND task_type='PICKING'
                   AND status='COMPLETED'
-                LIMIT 1
-                FOR UPDATE
+                ORDER BY task_id
                 """,
                 (
-                    picking_task_id,
+                    order_id,
                 )
             )
+
 
         else:
 
-            picking_task = db.fetch_one(
+
+            picking_tasks = db.fetch_all(
                 """
                 SELECT
                     task_id,
@@ -131,73 +112,73 @@ def generate_packing_task_created(
                     warehouse_id,
                     product_id,
                     quantity,
-                    location,
-                    correlation_id,
-                    task_completed_at,
-                    completed_at,
-                    task_started_at,
-                    created_at
+                    correlation_id
                 FROM warehouse_tasks
                 WHERE task_type='PICKING'
                   AND status='COMPLETED'
-                  AND NOT EXISTS
-                  (
-                      SELECT 1
-                      FROM warehouse_tasks wt
-                      WHERE wt.task_type='PACKING'
-                        AND wt.picking_task_id =
-                            warehouse_tasks.task_id
-                  )
                 ORDER BY task_completed_at
-                LIMIT 1
-                FOR UPDATE
                 """
             )
 
-        if not picking_task:
 
-            if picking_task_id:
-
-                raise Exception(
-                    f"No completed picking task found "
-                    f"for task_id={picking_task_id}"
-                )
+        if not picking_tasks:
 
             raise Exception(
-                "No completed picking task available for packing"
+                "No COMPLETED PICKING tasks found"
             )
 
-        # -------------------------------------------------
-        # Extract details
-        # -------------------------------------------------
 
-        picking_task_id = picking_task["task_id"]
+        order_id = picking_tasks[0]["order_id"]
 
-        order_id = picking_task["order_id"]
+        warehouse_id = picking_tasks[0]["warehouse_id"]
 
-        warehouse_id = picking_task["warehouse_id"]
+        correlation_id = str(
+            picking_tasks[0]["correlation_id"]
+        )
 
-        product_id = picking_task["product_id"]
 
-        quantity = picking_task["quantity"]
 
-        if not order_id:
+        # ====================================================
+        # VERIFY ALL PICKING COMPLETED
+        # ====================================================
+
+
+        pending_tasks = db.fetch_one(
+            """
+            SELECT
+                COUNT(*) AS count
+            FROM warehouse_tasks
+            WHERE order_id=%s
+              AND task_type='PICKING'
+              AND status!='COMPLETED'
+            """,
+            (
+                order_id,
+            )
+        )
+
+
+        if pending_tasks["count"] > 0:
+
 
             raise Exception(
-                f"Picking task {picking_task_id} "
-                "is missing order_id"
+                f"""
+Picking not completed completely
+
+ORDER:
+{order_id}
+
+Remaining tasks:
+{pending_tasks["count"]}
+"""
             )
 
-        if quantity is None or quantity <= 0:
 
-            raise Exception(
-                f"Invalid picking quantity for task "
-                f"{picking_task_id}: {quantity}"
-            )
 
-        # =================================================
-        # Duplicate packing check
-        # =================================================
+        # ====================================================
+        # DUPLICATE PACKING CHECK
+        # ====================================================
+
 
         existing = db.fetch_one(
             """
@@ -205,102 +186,65 @@ def generate_packing_task_created(
                 task_id,
                 status
             FROM warehouse_tasks
-            WHERE task_type='PACKING'
-              AND picking_task_id=%s
-              AND status IN
-              (
-                  'CREATED',
-                  'STARTED',
-                  'COMPLETED'
-              )
+            WHERE order_id=%s
+              AND task_type='PACKING'
             LIMIT 1
             """,
             (
-                picking_task_id,
+                order_id,
             )
         )
 
+
         if existing:
+
 
             raise Exception(
                 f"""
 Packing task already exists
 
-Picking Task:
-{picking_task_id}
+TASK:
+{existing["task_id"]}
 
-Packing Task:
-{existing['task_id']}
-
-Status:
-{existing['status']}
+STATUS:
+{existing["status"]}
 """
             )
 
-        # =================================================
-        # Find available packer
-        # =================================================
 
-        worker = db.fetch_one(
-            """
-            SELECT
-                worker_id
-            FROM workers
-            WHERE warehouse_id=%s
-              AND current_status='AVAILABLE'
-              AND employment_status='Active'
-              AND LOWER(role) IN
-              (
-                  'packer',
-                  'warehouse associate'
-              )
-            ORDER BY random()
-            LIMIT 1
-            FOR UPDATE
-            """,
-            (
-                warehouse_id,
-            )
+
+        # ====================================================
+        # CALCULATE TOTAL QUANTITY
+        # ====================================================
+
+
+        total_quantity = sum(
+            task["quantity"]
+            for task in picking_tasks
         )
 
-        if not worker:
 
-            raise Exception(
-                f"""
-No packing worker available
 
-Warehouse:
-{warehouse_id}
-
-Picking Task:
-{picking_task_id}
-"""
-            )
-
-        worker_id = worker["worker_id"]
-
-        # =================================================
-        # Create packing task
-        # =================================================
-
-        task_id = next_task_id(db)
-
-        created_at = _get_packing_task_created_time(
-            picking_task
+        created_at = _ensure_utc(
+            get_simulation_now()
         )
 
-        correlation_id = (
-            str(
-                picking_task["correlation_id"]
-            )
-            if picking_task["correlation_id"]
-            else str(uuid.uuid4())
-        )
+
 
         estimated_minutes = random.randint(
-            10,
-            30
+            5,
+            20
         )
+
+
+        task_id = _generate_task_id()
+
+
+
+        # ====================================================
+        # CREATE PACKING TASK
+        # ====================================================
+
 
         db.execute(
             """
@@ -310,25 +254,18 @@ Picking Task:
                 task_type,
                 warehouse_id,
                 order_id,
-                product_id,
-                picking_task_id,
-                location,
                 quantity,
-                expected_quantity,
                 priority,
                 status,
-                assigned_worker_id,
+                expected_quantity,
                 estimated_minutes,
                 created_at,
-                assigned_at,
-                created_by,
                 correlation_id
             )
             VALUES
             (
-                %s,%s,%s,%s,%s,%s,
-                %s,%s,%s,%s,%s,%s,
-                %s,%s,%s,%s,%s
+                %s,%s,%s,%s,%s,
+                %s,%s,%s,%s,%s,%s
             )
             """,
             (
@@ -336,117 +273,78 @@ Picking Task:
                 "PACKING",
                 warehouse_id,
                 order_id,
-                product_id,
-                picking_task_id,
-                picking_task["location"],
-                quantity,
-                quantity,
-                "HIGH",
+                total_quantity,
+                "NORMAL",
                 "CREATED",
-                worker_id,
+                total_quantity,
                 estimated_minutes,
                 created_at,
-                created_at,
-                "WMS",
                 correlation_id
             )
         )
 
-        # =================================================
-        # Reserve worker for packing task
-        # =================================================
+
+
+        print(
+            f"""
+============================================================
+PACKING TASK CREATED
+
+TASK:
+{task_id}
+
+ORDER:
+{order_id}
+
+QUANTITY:
+{total_quantity}
+
+============================================================
+"""
+        )
+
+
+
+        # ====================================================
+        # UPDATE ORDER STATUS
+        # ====================================================
+
 
         db.execute(
             """
-            UPDATE workers
+            UPDATE orders
             SET
-                current_status='BUSY'
-            WHERE worker_id=%s
+                order_status='PACKING'
+            WHERE order_id=%s
             """,
             (
-                worker_id,
+                order_id,
             )
         )
 
-        # =================================================
-        # Publish Event
-        # =================================================
+
+
+        # ====================================================
+        # EVENT PAYLOAD
+        # ====================================================
+
 
         payload = {
-            "eventType":
+
+
+            "event_type":
                 EVENT_NAME,
 
-            "occurredAt":
+
+            "occurred_at":
                 created_at.isoformat(),
 
-            "packingTask":
+
+            "packing_task":
             {
-                "taskId":
-                    task_id,
 
-                "pickingTaskId":
-                    picking_task_id,
-
-                "orderId":
-                    order_id,
-
-                "warehouseId":
-                    warehouse_id,
-
-                "productId":
-                    product_id,
-
-                "quantity":
-                    quantity,
-
-                "workerId":
-                    worker_id,
-
-                "status":
-                    "CREATED",
-
-                "createdAt":
-                    created_at.isoformat(),
-
-                "pickingCompletedAt":
-                    picking_task["task_completed_at"].isoformat()
-                    if picking_task["task_completed_at"]
-                    else (
-                        picking_task["completed_at"].isoformat()
-                        if picking_task["completed_at"]
-                        else None
-                    )
-            },
-
-            "correlationId":
-                correlation_id
-        }
-
-        # =================================================
-        # Outbox
-        # =================================================
-
-        publish_event(
-            db=db,
-            event_type=EVENT_NAME,
-            aggregate_type="WAREHOUSE_TASK",
-            aggregate_id=task_id,
-            correlation_id=correlation_id,
-            payload=payload
-        )
-
-        # =================================================
-        # Logging
-        # =================================================
-
-        log_event_success(
-            EVENT_NAME,
-            {
                 "task_id":
                     task_id,
-
-                "picking_task_id":
-                    picking_task_id,
 
                 "order_id":
                     order_id,
@@ -454,44 +352,79 @@ Picking Task:
                 "warehouse_id":
                     warehouse_id,
 
-                "worker_id":
-                    worker_id,
+                "quantity":
+                    total_quantity,
 
-                "created_at":
-                    created_at,
+                "status":
+                    "CREATED"
 
-                "correlation_id":
-                    correlation_id
-            }
-        )
+            },
 
-        return {
-            "task_id":
-                task_id,
 
-            "picking_task_id":
-                picking_task_id,
+            "correlation_id":
+                correlation_id
 
-            "order_id":
-                order_id
         }
 
 
+
+        # ====================================================
+        # OUTBOX EVENT
+        # ====================================================
+
+
+        publish_event(
+            db=db,
+            event_type=EVENT_NAME,
+            aggregate_type="ORDER",
+            aggregate_id=order_id,
+            correlation_id=correlation_id,
+            payload=payload
+        )
+
+
+
+        # ====================================================
+        # LOG
+        # ====================================================
+
+
+        log_event_success(
+            EVENT_NAME,
+            {
+                "task_id": task_id,
+                "order_id": order_id,
+                "quantity": total_quantity
+            }
+        )
+
+
+        return {
+
+            "task_id":
+                task_id,
+
+            "order_id":
+                order_id,
+
+            "status":
+                "CREATED"
+
+        }
+
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
 if __name__ == "__main__":
 
-    import sys
 
     try:
 
-        if len(sys.argv) > 1:
+        generate_packing_task_created()
 
-            generate_packing_task_created(
-                sys.argv[1]
-            )
-
-        else:
-
-            generate_packing_task_created()
 
     except Exception as e:
 

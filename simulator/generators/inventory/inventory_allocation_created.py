@@ -1,174 +1,252 @@
-from datetime import timedelta
 import random
-import uuid
-import sys
+import string
+from datetime import timezone
 
 from core.db import Database
-from core.ids import next_allocation_id
 from core.outbox import publish_event
 from core.logger import (
     log_event_success,
     log_event_failure
 )
-from core.simulation_clock import (
-    get_simulation_now
-)
+from core.simulation_clock import get_simulation_now
 
 
 EVENT_NAME = "InventoryAllocationCreated"
 
 
+
 # ============================================================
-# TIME HELPERS
+# HELPERS
 # ============================================================
 
-def _get_allocation_time(order):
-    """
-    Inventory allocation must happen after the order has
-    been confirmed.
+def _ensure_utc(value):
 
-    Primary business anchors:
-        1. confirmed_at
-        2. order_date
-        3. created_at
-        4. simulation time
+    if value is None:
+        return None
 
-    A small processing delay is added so that allocation
-    does not occur at the exact same timestamp as order
-    confirmation.
-    """
+    if value.tzinfo is None:
+        return value.replace(
+            tzinfo=timezone.utc
+        )
 
-    simulation_now = get_simulation_now()
+    return value.astimezone(
+        timezone.utc
+    )
 
-    candidates = [
-        candidate
-        for candidate in [
-            order.get("confirmed_at"),
-            order.get("order_date"),
-            order.get("created_at"),
-            simulation_now
-        ]
-        if candidate is not None
-    ]
 
-    if not candidates:
-        base_time = simulation_now
-    else:
-        base_time = max(candidates)
 
-    return (
-        base_time +
-        timedelta(
-            minutes=random.randint(
-                1,
-                30
-            )
+def _generate_allocation_id():
+
+    suffix = ''.join(
+        random.choices(
+            string.ascii_uppercase +
+            string.digits,
+            k=6
+        )
+    )
+
+    return f"ALLOC-{suffix}"
+
+
+
+# ============================================================
+# FIND AVAILABLE INVENTORY
+# ============================================================
+
+def _find_available_inventory(
+        db,
+        warehouse_id,
+        product_id
+):
+
+    return db.fetch_all(
+        """
+        SELECT
+            inventory_id,
+            product_id,
+            warehouse_id,
+            available_quantity,
+            location_id
+        FROM inventory
+        WHERE warehouse_id=%s
+          AND product_id=%s
+          AND inventory_status='AVAILABLE'
+          AND available_quantity > 0
+          AND location_id IS NOT NULL
+        ORDER BY available_quantity DESC
+        FOR UPDATE
+        """,
+        (
+            warehouse_id,
+            product_id
         )
     )
 
 
+
 # ============================================================
-# INVENTORY SELECTION
+# CHECK EXISTING ALLOCATION
 # ============================================================
 
-def _fetch_allocatable_inventory_row(db, warehouse_id, product_id):
-    """
-    Find any inventory row that can actually support the
-    requested allocation.
-
-    The lookup is intentionally a little more forgiving than a
-    strict AVAILABLE-only filter because some generator runs may
-    leave inventory in a valid positive-stock state while the
-    status lags behind. We still require positive allocatable
-    stock and the correct warehouse/product pair.
-    """
+def _check_existing_allocation(
+        db,
+        order_id,
+        product_id
+):
 
     return db.fetch_one(
         """
         SELECT
-            inventory_id,
-            location_id,
-            on_hand_quantity,
-            reserved_quantity,
-            available_quantity,
-            inventory_status
-        FROM inventory
-        WHERE product_id=%s
-          AND warehouse_id=%s
-          AND COALESCE(
-                available_quantity,
-                on_hand_quantity - reserved_quantity
-              ) > 0
-        ORDER BY
-            CASE
-                WHEN inventory_status='AVAILABLE' THEN 0
-                ELSE 1
-            END,
-            COALESCE(
-                available_quantity,
-                on_hand_quantity - reserved_quantity
-            ) DESC,
-            inventory_id ASC
-        FOR UPDATE
+            allocation_id
+        FROM inventory_allocations
+        WHERE order_id=%s
+          AND product_id=%s
+          AND allocation_status IN
+          (
+              'ALLOCATED',
+              'RESERVED'
+          )
+        LIMIT 1
         """,
         (
-            product_id,
-            warehouse_id
+            order_id,
+            product_id
         )
     )
 
 
+
 # ============================================================
-# MAIN GENERATOR
+# MAIN EVENT
 # ============================================================
 
-def generate_inventory_allocation_created(order_id):
+def generate_inventory_allocation_created(
+        order_id=None
+):
+
 
     with Database() as db:
 
-        # --------------------------------------------------
-        # Validate order exists
-        # --------------------------------------------------
 
-        order = db.fetch_one(
-            """
-            SELECT
-                order_id,
-                warehouse_id,
-                order_date,
-                created_at,
-                confirmed_at,
-                correlation_id
-            FROM orders
-            WHERE order_id=%s
-            """,
-            (
-                order_id,
-            )
+        print(
+            f"""
+============================================================
+PROCESSING EVENT : {EVENT_NAME}
+
+CREATING INVENTORY ALLOCATION
+
+============================================================
+"""
         )
 
+
+
+        # ====================================================
+        # FIND ORDER
+        # ====================================================
+
+        if order_id:
+
+
+            order = db.fetch_one(
+                """
+                SELECT
+                    o.order_id,
+                    o.warehouse_id,
+                    o.correlation_id
+                FROM orders o
+                WHERE o.order_id=%s
+                  AND o.items_created=true
+                  AND o.order_status='CREATED'
+                  AND NOT EXISTS
+                  (
+                      SELECT 1
+                      FROM inventory_allocations ia
+                      WHERE ia.order_id=o.order_id
+                        AND ia.allocation_status IN
+                        (
+                            'ALLOCATED',
+                            'RESERVED'
+                        )
+                  )
+                LIMIT 1
+                FOR UPDATE
+                """,
+                (
+                    order_id,
+                )
+            )
+
+
+        else:
+
+
+            order = db.fetch_one(
+                """
+                SELECT
+                    o.order_id,
+                    o.warehouse_id,
+                    o.correlation_id
+                FROM orders o
+                WHERE o.items_created=true
+                  AND o.order_status='CREATED'
+                  AND NOT EXISTS
+                  (
+                      SELECT 1
+                      FROM inventory_allocations ia
+                      WHERE ia.order_id=o.order_id
+                        AND ia.allocation_status IN
+                        (
+                            'ALLOCATED',
+                            'RESERVED'
+                        )
+                  )
+                ORDER BY o.created_at
+                LIMIT 1
+                FOR UPDATE
+                """
+            )
+
+
+
         if not order:
-            raise Exception(f"Order not found {order_id}")
+
+            raise Exception(
+                "No CREATED order available for allocation"
+            )
+
+
+
+        order_id = order["order_id"]
 
         warehouse_id = order["warehouse_id"]
 
-        correlation_id = (
-            str(order["correlation_id"])
-            if order["correlation_id"]
-            else str(uuid.uuid4())
+        correlation_id = str(
+            order["correlation_id"]
         )
 
-        # --------------------------------------------------
-        # Calculate allocation business timestamp
-        # --------------------------------------------------
 
-        allocated_at = _get_allocation_time(order)
 
-        # --------------------------------------------------
-        # Fetch all order items
-        # --------------------------------------------------
+        print(
+            f"""
+============================================================
+ORDER FOUND
 
-        order_items = db.fetch_all(
+ORDER ID       : {order_id}
+WAREHOUSE      : {warehouse_id}
+CORRELATION ID : {correlation_id}
+
+============================================================
+"""
+        )
+
+
+
+        # ====================================================
+        # FETCH ORDER ITEMS
+        # ====================================================
+
+        items = db.fetch_all(
             """
             SELECT
                 order_item_id,
@@ -183,297 +261,343 @@ def generate_inventory_allocation_created(order_id):
             )
         )
 
-        if not order_items:
-            raise Exception(f"No order items found {order_id}")
+
+
+        if not items:
+
+            raise Exception(
+                f"No order items found for {order_id}"
+            )
+
+
 
         allocations = []
 
-        # ==================================================
-        # Allocate each product
-        # ==================================================
 
-        for item in order_items:
+
+        # ====================================================
+        # PROCESS EACH PRODUCT
+        # ====================================================
+
+        for item in items:
+
 
             product_id = item["product_id"]
-            quantity = item["quantity"]
 
-            if quantity <= 0:
-                raise Exception(
-                    f"Invalid order quantity for "
-                    f"product {product_id}: {quantity}"
-                )
+            required_qty = item["quantity"]
 
-            # ----------------------------------------------
-            # Duplicate allocation check
-            # ----------------------------------------------
 
-            existing = db.fetch_one(
-                """
-                SELECT
-                    allocation_id
-                FROM inventory_allocations
-                WHERE order_id=%s
-                  AND product_id=%s
-                  AND allocation_status IN
-                  (
-                      'RESERVED',
-                      'ALLOCATED'
-                  )
-                LIMIT 1
-                """,
-                (
-                    order_id,
-                    product_id
-                )
+
+            print(
+                f"""
+------------------------------------------------------------
+PRODUCT
+
+PRODUCT ID :
+{product_id}
+
+REQUIRED QTY :
+{required_qty}
+
+------------------------------------------------------------
+"""
             )
 
+
+
+            existing = _check_existing_allocation(
+                db,
+                order_id,
+                product_id
+            )
+
+
             if existing:
+
                 raise Exception(
                     f"""
 Allocation already exists
 
-Product:
+ORDER:
+{order_id}
+
+PRODUCT:
 {product_id}
 
-Allocation:
-{existing['allocation_id']}
+ALLOCATION:
+{existing["allocation_id"]}
 """
                 )
 
-            # ----------------------------------------------
-            # Lock allocatable inventory
-            # ----------------------------------------------
 
-            inventory = _fetch_allocatable_inventory_row(
-                db=db,
-                warehouse_id=warehouse_id,
-                product_id=product_id
+
+            inventory_rows = _find_available_inventory(
+                db,
+                warehouse_id,
+                product_id
             )
 
-            if not inventory:
+
+
+            if not inventory_rows:
+
                 raise Exception(
                     f"""
-AVAILABLE inventory not found
+No inventory found
 
-Product:
+PRODUCT:
 {product_id}
 
-Warehouse:
+WAREHOUSE:
 {warehouse_id}
 """
                 )
 
-            # ----------------------------------------------
-            # Validate inventory status / quantities
-            # ----------------------------------------------
 
-            if not inventory["location_id"]:
-                raise Exception(
-                    f"""
-Inventory location missing
 
-Inventory:
-{inventory['inventory_id']}
+            remaining_qty = required_qty
 
-Product:
-{product_id}
-"""
+
+
+            # =================================================
+            # SPLIT ACROSS LOCATIONS
+            # =================================================
+
+            for inventory in inventory_rows:
+
+
+                if remaining_qty <= 0:
+
+                    break
+
+
+
+                available_qty = inventory[
+                    "available_quantity"
+                ]
+
+
+                allocated_qty = min(
+                    available_qty,
+                    remaining_qty
                 )
 
-            on_hand_quantity = int(inventory["on_hand_quantity"] or 0)
-            reserved_quantity = int(inventory["reserved_quantity"] or 0)
 
-            if inventory["available_quantity"] is None:
-                available_quantity = on_hand_quantity - reserved_quantity
-            else:
-                available_quantity = int(inventory["available_quantity"])
 
-            stored_available_quantity = inventory["available_quantity"]
+                allocation_id = _generate_allocation_id()
+                # =================================================
+                # CREATE INVENTORY ALLOCATION
+                # =================================================
 
-            if stored_available_quantity is not None and stored_available_quantity != available_quantity:
-                # Keep the simulation strict when the column is stored,
-                # but still readable when it is computed/derived.
-                raise Exception(
-                    f"""
-Inventory quantity mismatch
-
-Inventory:
-{inventory['inventory_id']}
-
-Product:
-{product_id}
-
-Calculated Available:
-{available_quantity}
-
-Stored Available:
-{stored_available_quantity}
-"""
+                db.execute(
+                    """
+                    INSERT INTO inventory_allocations
+                    (
+                        allocation_id,
+                        order_id,
+                        warehouse_id,
+                        product_id,
+                        allocated_quantity,
+                        allocation_status,
+                        allocated_at,
+                        correlation_id,
+                        inventory_id,
+                        location_id
+                    )
+                    VALUES
+                    (
+                        %s,%s,%s,%s,%s,%s,
+                        %s,%s,%s,%s
+                    )
+                    """,
+                    (
+                        allocation_id,
+                        order_id,
+                        warehouse_id,
+                        product_id,
+                        allocated_qty,
+                        "ALLOCATED",
+                        _ensure_utc(
+                            get_simulation_now()
+                        ),
+                        correlation_id,
+                        inventory["inventory_id"],
+                        inventory["location_id"]
+                    )
                 )
 
-            if available_quantity < quantity:
-                raise Exception(
-                    f"""
-Insufficient inventory
+                allocations.append(
+                    {
 
-Product:
-{product_id}
+                        "allocation_id":
+                            allocation_id,
 
-Available:
-{available_quantity}
+                        "product_id":
+                            product_id,
 
-Requested:
-{quantity}
-"""
+                        "inventory_id":
+                            inventory["inventory_id"],
+
+                        "location_id":
+                            inventory["location_id"],
+
+                        "allocated_quantity":
+                            allocated_qty,
+
+                        "allocation_status":
+                            "ALLOCATED"
+
+                    }
                 )
 
-            # ----------------------------------------------
-            # Generate allocation id
-            # ----------------------------------------------
+                remaining_qty -= allocated_qty
 
-            allocation_id = next_allocation_id(db)
+                # =================================================
+                # VALIDATE FULL ALLOCATION
+                # =================================================
 
-            # ----------------------------------------------
-            # Update reserved quantity
-            # ----------------------------------------------
+            if remaining_qty > 0:
+                raise Exception(
+                    f"""
+                Insufficient inventory
 
-            db.execute(
+                ORDER:
+                {order_id}
+
+                PRODUCT:
+                {product_id}
+
+                MISSING QUANTITY:
+                {remaining_qty}
                 """
-                UPDATE inventory
-                SET
-                    reserved_quantity =
-                        reserved_quantity + %s,
-                    last_updated_at=%s
-                WHERE inventory_id=%s
-                """,
-                (
-                    quantity,
-                    allocated_at,
-                    inventory["inventory_id"]
                 )
+
+                # ====================================================
+                # EVENT TIME
+                # ====================================================
+
+            allocation_time = _ensure_utc(
+                get_simulation_now()
             )
 
-            # ----------------------------------------------
-            # Insert allocation
-            # ----------------------------------------------
+            # ====================================================
+            # EVENT PAYLOAD
+            # ====================================================
 
-            db.execute(
-                """
-                INSERT INTO inventory_allocations
-                (
-                    allocation_id,
-                    order_id,
-                    warehouse_id,
-                    product_id,
-                    allocated_quantity,
-                    allocation_status,
-                    allocated_at,
-                    correlation_id,
-                    inventory_id,
-                    location_id
-                )
-                VALUES
-                (
-                    %s,%s,%s,%s,%s,%s,%s,%s,%s,%s
-                )
-                """,
-                (
-                    allocation_id,
-                    order_id,
-                    warehouse_id,
-                    product_id,
-                    quantity,
-                    "RESERVED",
-                    allocated_at,
-                    correlation_id,
-                    inventory["inventory_id"],
-                    inventory["location_id"]
-                )
+            payload = {
+
+                "event_type":
+                    EVENT_NAME,
+
+                "occurred_at":
+                    allocation_time.isoformat(),
+
+                "allocation":
+
+                    {
+
+                        "order_id":
+                            order_id,
+
+                        "warehouse_id":
+                            warehouse_id,
+
+                        "allocations":
+                            allocations,
+
+                        "total_allocations":
+                            len(allocations)
+
+                    },
+
+                "correlation_id":
+                    correlation_id
+
+            }
+
+            # ====================================================
+            # OUTBOX EVENT
+            # ====================================================
+
+            publish_event(
+                db=db,
+                event_type=EVENT_NAME,
+                aggregate_type="ORDER",
+                aggregate_id=order_id,
+                correlation_id=correlation_id,
+                payload=payload
             )
 
-            allocations.append(
+            # ====================================================
+            # SUCCESS LOG
+            # ====================================================
+
+            log_event_success(
+                EVENT_NAME,
                 {
-                    "allocationId": allocation_id,
-                    "productId": product_id,
-                    "quantity": quantity,
-                    "inventoryId": inventory["inventory_id"],
-                    "locationId": inventory["location_id"]
+
+                    "order_id":
+                        order_id,
+
+                    "warehouse_id":
+                        warehouse_id,
+
+                    "allocation_count":
+                        len(allocations),
+
+                    "correlation_id":
+                        correlation_id
+
                 }
             )
 
-        # --------------------------------------------------
-        # All items were successfully allocated
-        # --------------------------------------------------
+            print(
+                f"""
+                ============================================================
+                EVENT SUCCESS
 
-        db.execute(
-            """
-            UPDATE orders
-            SET
-                order_status='ALLOCATED'
-            WHERE order_id=%s
-            """,
-            (
-                order_id,
+                EVENT:
+                {EVENT_NAME}
+
+                ORDER:
+                {order_id}
+
+                ALLOCATIONS:
+                {len(allocations)}
+
+                STATUS:
+                ALLOCATED
+
+                ============================================================
+                """
             )
-        )
 
-        # --------------------------------------------------
-        # Event payload
-        # --------------------------------------------------
+            return {
 
-        payload = {
-            "eventType": EVENT_NAME,
-            "occurredAt": allocated_at.isoformat(),
-            "orderId": order_id,
-            "warehouseId": warehouse_id,
-            "allocations": allocations,
-            "status": "RESERVED",
-            "correlationId": correlation_id
-        }
+                "order_id":
+                    order_id,
 
-        # --------------------------------------------------
-        # Outbox
-        # --------------------------------------------------
+                "allocations":
+                    allocations,
 
-        publish_event(
-            db=db,
-            event_type=EVENT_NAME,
-            aggregate_type="INVENTORY_ALLOCATION",
-            aggregate_id=order_id,
-            correlation_id=correlation_id,
-            payload=payload
-        )
+                "status":
+                    "ALLOCATED"
 
-        # --------------------------------------------------
-        # Logging
-        # --------------------------------------------------
-
-        log_event_success(
-            EVENT_NAME,
-            {
-                "order_id": order_id,
-                "warehouse_id": warehouse_id,
-                "allocation_count": len(allocations),
-                "allocated_at": allocated_at,
-                "correlation_id": correlation_id
             }
-        )
 
-        return {
-            "order_id": order_id,
-            "allocations": allocations
-        }
-
+        # ============================================================
+        # MAIN
+        # ============================================================
 
 if __name__ == "__main__":
 
     try:
-        order_id = sys.argv[1]
-        generate_inventory_allocation_created(order_id)
-
+        generate_inventory_allocation_created()
     except Exception as e:
+
         log_event_failure(
-            EVENT_NAME,
-            e
-        )
+                    EVENT_NAME,
+                    e
+                )
+
         raise

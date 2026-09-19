@@ -1,296 +1,704 @@
-from datetime import timedelta
-import random
-import uuid
-
+from datetime import timezone
+import sys
 
 from core.db import Database
-
-from core.outbox import publish_event
-
-from core.payloads import (
-    build_inventory_putaway_payload
-)
-
 from core.logger import (
-    log_event_success,
-    log_event_failure
+    log_event_failure,
+    log_event_success
 )
-
-from core.simulation_clock import (
-    get_simulation_now
-)
+from core.outbox import publish_event
+from core.simulation_clock import get_simulation_now
 
 
 EVENT_NAME = "InventoryPutaway"
 
 
-def _get_putaway_time(inventories):
-    """
-    Calculate a causally valid putaway timestamp.
+# ============================================================
+# DATETIME NORMALIZER
+# ============================================================
 
-    InventoryPutaway must happen after the inventory was
-    received and its stock quantity was updated.
+def _ensure_utc(value):
 
-    The latest last_updated_at value among the selected
-    inventory records is used as the business anchor.
+    if value is None:
+        return None
 
-    The simulation clock is also considered so that the
-    event remains compatible with the overall simulation
-    timeline.
-    """
+    if value.tzinfo is None:
+        return value.replace(
+            tzinfo=timezone.utc
+        )
 
-    simulation_now = get_simulation_now()
+    return value.astimezone(
+        timezone.utc
+    )
 
-    inventory_times = [
-        inv["last_updated_at"]
-        for inv in inventories
-        if inv.get("last_updated_at") is not None
-    ]
 
-    candidates = inventory_times + [simulation_now]
 
-    base_time = max(candidates)
+# ============================================================
+# FIND STORAGE LOCATION
+# ============================================================
 
-    return (
-        base_time +
-        timedelta(
-            minutes=random.randint(
-                10,
-                60
-            )
+def _find_storage_location(
+        db,
+        warehouse_id,
+        quantity
+):
+
+    location = db.fetch_one(
+        """
+        SELECT
+
+            location_id,
+
+            warehouse_id,
+
+            capacity_units,
+
+            current_utilization,
+
+            storage_type
+
+
+        FROM warehouse_locations
+
+
+        WHERE warehouse_id=%s
+
+
+        AND status='ACTIVE'
+
+
+        AND capacity_units IS NOT NULL
+
+
+        AND (
+            capacity_units -
+            current_utilization
+        ) >= %s
+
+
+        ORDER BY current_utilization ASC
+
+
+        LIMIT 1
+
+
+        FOR UPDATE
+
+        """,
+        (
+            warehouse_id,
+            quantity
         )
     )
 
 
-def generate_inventory_putaway():
+    if not location:
+
+        raise Exception(
+            f"""
+No storage location available
+
+
+WAREHOUSE :
+{warehouse_id}
+
+
+REQUIRED QTY :
+{quantity}
+
+"""
+        )
+
+
+    return location
+
+
+
+# ============================================================
+# MAIN EVENT
+# ============================================================
+
+def generate_inventory_putaway(
+        inventory_id=None
+):
+
 
     with Database() as db:
 
-        # ---------------------------------
-        # Find inventory waiting for putaway
-        #
-        # Inventory must:
-        #
-        # 1. Have RECEIVED status
-        # 2. Not yet have a warehouse location
-        #
-        # AVAILABLE is intentionally NOT selected
-        # here because already-putaway inventory
-        # must never be processed again.
-        # ---------------------------------
 
-        inventories = db.fetch_all(
-            """
-            SELECT *
-            FROM inventory
-            WHERE inventory_status='RECEIVED'
-              AND location_id IS NULL
-            ORDER BY last_updated_at
-            LIMIT 100
-            """
+        print(
+f"""
+============================================================
+PROCESSING EVENT : {EVENT_NAME}
+
+
+SEARCHING STOCK READY FOR PUTAWAY
+
+============================================================
+"""
         )
 
-        if not inventories:
+
+
+        # ====================================================
+        # INVENTORY ID REQUIRED
+        # ====================================================
+
+
+        if not inventory_id:
 
             raise Exception(
-                "No RECEIVED inventory waiting for putaway"
+                "inventory_id required for InventoryPutaway"
             )
 
-        # ---------------------------------
-        # Calculate putaway business time
-        # ---------------------------------
 
-        putaway_at = _get_putaway_time(
-            inventories
+
+        # ====================================================
+        # FIND INVENTORY
+        # ====================================================
+
+
+        inventory = db.fetch_one(
+            """
+
+            SELECT
+
+                inventory_id,
+
+                product_id,
+
+                warehouse_id,
+
+                on_hand_quantity,
+
+                available_quantity,
+
+                reserved_quantity,
+
+                damaged_quantity,
+
+                location_id,
+
+                inventory_status,
+
+                correlation_id,
+
+                last_updated_at
+
+
+            FROM inventory
+
+
+            WHERE inventory_id=%s
+
+
+            AND inventory_status='AVAILABLE'
+
+
+            AND location_id IS NULL
+
+
+            LIMIT 1
+
+
+            FOR UPDATE
+
+
+            """,
+            (
+                inventory_id,
+            )
         )
 
-        putaway_items = []
+
+
+        if not inventory:
+
+
+            raise Exception(
+f"""
+No inventory ready for putaway
+
+
+INVENTORY ID :
+{inventory_id}
+
+"""
+            )
+
+
+
+        inventory_id = inventory["inventory_id"]
+
+        product_id = inventory["product_id"]
+
+        warehouse_id = inventory["warehouse_id"]
+
+        quantity = inventory["available_quantity"]
+
 
         correlation_id = str(
-            uuid.uuid4()
+            inventory["correlation_id"]
         )
 
-        # ---------------------------------
-        # Process inventory records
-        # ---------------------------------
 
-        for inv in inventories:
 
-            # -----------------------------
-            # Find bin location
-            # -----------------------------
+        print(
+f"""
+============================================================
 
-            location = db.fetch_one(
-                """
-                SELECT
-                    location_id
-                FROM warehouse_locations
-                WHERE warehouse_id=%s
-                  AND status='ACTIVE'
-                ORDER BY random()
-                LIMIT 1
-                """,
-                (
-                    inv["warehouse_id"],
-                )
+INVENTORY FOUND
+
+
+INVENTORY ID :
+{inventory_id}
+
+
+PRODUCT :
+{product_id}
+
+
+WAREHOUSE :
+{warehouse_id}
+
+
+AVAILABLE QTY :
+{quantity}
+
+
+STATUS :
+{inventory["inventory_status"]}
+
+
+============================================================
+"""
+        )
+
+
+
+        if quantity <= 0:
+
+            raise Exception(
+                f"Invalid available quantity {quantity}"
             )
 
-            if not location:
 
-                raise Exception(
-                    "No warehouse location found "
-                    f"for warehouse "
-                    f"{inv['warehouse_id']}"
-                )
 
-            location_id = location[
-                "location_id"
-            ]
+        # ====================================================
+        # FIND LOCATION
+        # ====================================================
 
-            # -----------------------------
-            # Insert location stock
-            # -----------------------------
 
-            db.execute(
-                """
-                INSERT INTO inventory_locations
-                (
-                    product_id,
-                    warehouse_id,
-                    location_id,
-                    quantity
-                )
-                VALUES
-                (%s,%s,%s,%s)
-                ON CONFLICT
-                (
-                    product_id,
-                    warehouse_id,
-                    location_id
-                )
-                DO UPDATE SET
-                    quantity =
-                        inventory_locations.quantity
-                        + EXCLUDED.quantity
-                """,
-                (
-                    inv["product_id"],
-                    inv["warehouse_id"],
-                    location_id,
-                    inv["on_hand_quantity"]
-                )
+        location = _find_storage_location(
+            db,
+            warehouse_id,
+            quantity
+        )
+
+
+        location_id = location["location_id"]
+
+
+
+        print(
+f"""
+============================================================
+
+LOCATION FOUND
+
+
+LOCATION :
+{location_id}
+
+
+CAPACITY :
+{location["capacity_units"]}
+
+
+CURRENT :
+{location["current_utilization"]}
+
+
+============================================================
+"""
+        )
+
+
+
+        simulation_now = _ensure_utc(
+            get_simulation_now()
+        )
+
+
+
+        # ====================================================
+        # UPDATE INVENTORY
+        # ====================================================
+
+
+        db.execute(
+            """
+
+            UPDATE inventory
+
+
+            SET
+
+
+                location_id=%s,
+
+
+                inventory_status=%s,
+
+
+                last_updated_at=%s
+
+
+
+            WHERE inventory_id=%s
+
+
+
+            """,
+            (
+
+                location_id,
+
+                "AVAILABLE",
+
+                simulation_now,
+
+                inventory_id
+
             )
+        )
 
-            # -----------------------------
-            # Update inventory
-            #
-            # THIS is where inventory becomes
-            # AVAILABLE.
-            # -----------------------------
 
-            db.execute(
-                """
-                UPDATE inventory
-                SET
-                    location_id=%s,
-                    inventory_status='AVAILABLE',
-                    last_updated_at=%s
-                WHERE inventory_id=%s
-                """,
-                (
-                    location_id,
-                    putaway_at,
-                    inv["inventory_id"]
-                )
+
+        # ====================================================
+        # UPDATE LOCATION UTILIZATION
+        # ====================================================
+
+
+        db.execute(
+            """
+
+            UPDATE warehouse_locations
+
+
+            SET
+
+
+                current_utilization =
+                current_utilization + %s
+
+
+
+            WHERE location_id=%s
+
+
+
+            """,
+            (
+
+                quantity,
+
+                location_id
+
             )
+        )
 
-            # -----------------------------
-            # Prepare event item
-            # -----------------------------
 
-            putaway_items.append(
-                {
-                    "product_id":
-                        inv["product_id"],
 
-                    "warehouse_id":
-                        inv["warehouse_id"],
+        # ====================================================
+        # INVENTORY TRANSACTION
+        # ====================================================
 
-                    "quantity":
-                        inv["on_hand_quantity"],
 
-                    "location_id":
-                        location_id
-                }
-            )
+        db.execute(
+            """
 
-        # ---------------------------------
-        # Event payload
-        # ---------------------------------
+            INSERT INTO inventory_transactions
 
-        payload = build_inventory_putaway_payload(
-            warehouse_id=
-                inventories[0]["warehouse_id"],
+            (
 
-            items=
-                putaway_items,
+                inventory_id,
 
-            correlation_id=
+                product_id,
+
+                warehouse_id,
+
+                transaction_type,
+
+                quantity,
+
+                reference_type,
+
+                reference_id,
+
                 correlation_id
+
+            )
+
+
+            VALUES
+
+            (%s,%s,%s,%s,%s,%s,%s,%s)
+
+            """,
+            (
+
+                inventory_id,
+
+                product_id,
+
+                warehouse_id,
+
+                "AVAILABLE",
+
+                quantity,
+
+                "INVENTORY",
+
+                str(inventory_id),
+
+                correlation_id
+
+            )
         )
 
-        # ---------------------------------
-        # Publish Outbox Event
-        # ---------------------------------
+
+
+        print(
+"""
+============================================================
+
+INVENTORY TRANSACTION CREATED
+
+
+TYPE :
+PUTAWAY_COMPLETED
+
+
+============================================================
+"""
+        )
+
+
+
+        # ====================================================
+        # EVENT PAYLOAD
+        # ====================================================
+
+
+        payload = {
+
+
+            "event_type":
+                EVENT_NAME,
+
+
+            "occurred_at":
+                simulation_now.isoformat(),
+
+
+            "inventory":
+
+            {
+
+                "inventory_id":
+                    inventory_id,
+
+
+                "product_id":
+                    product_id,
+
+
+                "warehouse_id":
+                    warehouse_id,
+
+
+                "location_id":
+                    location_id,
+
+
+                "quantity":
+                    quantity,
+
+
+                "status":
+                    "AVAILABLE"
+
+            },
+
+
+            "putaway":
+
+            {
+
+                "completed":
+                    True,
+
+
+                "location_id":
+                    location_id
+
+            },
+
+
+            "correlation_id":
+                correlation_id
+
+
+        }
+
+
+
+        # ====================================================
+        # OUTBOX
+        # ====================================================
+
 
         publish_event(
+
             db=db,
 
             event_type=EVENT_NAME,
 
             aggregate_type="INVENTORY",
 
-            aggregate_id=
-                inventories[0]["warehouse_id"],
+            aggregate_id=str(inventory_id),
 
-            correlation_id=
-                correlation_id,
+            correlation_id=correlation_id,
 
             payload=payload
+
         )
 
-        # ---------------------------------
-        # Logging
-        # ---------------------------------
+
+
+        # ====================================================
+        # SUCCESS LOG
+        # ====================================================
+
 
         log_event_success(
+
             EVENT_NAME,
+
             {
+
+                "inventory_id":
+                    inventory_id,
+
+
+                "product_id":
+                    product_id,
+
+
                 "warehouse_id":
-                    inventories[0]["warehouse_id"],
+                    warehouse_id,
 
-                "items":
-                    len(putaway_items),
 
-                "putaway_at":
-                    putaway_at,
+                "location_id":
+                    location_id,
 
-                "inventory_status":
-                    "AVAILABLE",
 
-                "correlation_id":
-                    correlation_id
+                "quantity":
+                    quantity
+
             }
+
         )
 
+
+
+        print(
+f"""
+============================================================
+
+EVENT : {EVENT_NAME}
+
+
+STATUS :
+SUCCESS
+
+
+INVENTORY :
+{inventory_id}
+
+
+LOCATION :
+{location_id}
+
+
+QUANTITY :
+{quantity}
+
+
+============================================================
+"""
+        )
+
+
+
+        return {
+
+
+            "inventory_id":
+                inventory_id,
+
+
+            "product_id":
+                product_id,
+
+
+            "warehouse_id":
+                warehouse_id,
+
+
+            "location_id":
+                location_id,
+
+
+            "quantity":
+                quantity,
+
+
+            "status":
+                "AVAILABLE"
+
+        }
+
+
+
+# ============================================================
+# MAIN
+# ============================================================
 
 if __name__ == "__main__":
 
+
     try:
 
-        generate_inventory_putaway()
+
+        if len(sys.argv) > 1:
+
+
+            generate_inventory_putaway(
+                sys.argv[1]
+            )
+
+
+        else:
+
+
+            generate_inventory_putaway()
+
+
 
     except Exception as e:
+
 
         log_event_failure(
             EVENT_NAME,
