@@ -4,6 +4,7 @@ import json
 import os
 import subprocess
 import sys
+import uuid
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,21 +53,6 @@ RESET_SCRIPT = (
 
 
 # ============================================================
-# DEFAULT SIMULATION TIMESTAMP
-# ============================================================
-
-DEFAULT_SIM_START = datetime(
-    2026,
-    1,
-    1,
-    0,
-    0,
-    0,
-    tzinfo=timezone.utc
-)
-
-
-# ============================================================
 # DATETIME NORMALIZATION
 # ============================================================
 
@@ -75,7 +61,7 @@ def _ensure_utc(
 ) -> datetime:
 
     if dt is None:
-        return DEFAULT_SIM_START
+        return datetime.now(timezone.utc)
 
     if dt.tzinfo is None:
         return dt.replace(
@@ -129,6 +115,13 @@ def _build_env(
 
     env["SIMULATION_NOW"] = (
         simulation_start.isoformat()
+    )
+    env["SIMULATION_RUN_WINDOW"] = (
+        str(request.run_window or "morning").lower()
+    )
+    env["SIMULATION_CORRELATION_ID"] = str(
+        request.correlation_id
+        or uuid.uuid4()
     )
 
     # --------------------------------------------------------

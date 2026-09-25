@@ -5,32 +5,41 @@ from pydantic import BaseModel, Field
 
 
 # ============================================================
-# DEFAULT SIMULATION START
-# ============================================================
-
-def _default_sim_start() -> datetime:
-    return datetime(
-        2026,
-        1,
-        1,
-        0,
-        0,
-        0,
-        tzinfo=timezone.utc
-    )
-
-
-# ============================================================
 # REQUEST
 # ============================================================
 
 class SimulationRequest(BaseModel):
 
-    simulation_start_timestamp: datetime = Field(
-        default_factory=_default_sim_start,
+    simulation_start_timestamp: Optional[datetime] = Field(
+        default=None,
         description=(
             "Simulation starting timestamp in UTC. "
-            "Example: 2026-01-01T00:00:00Z"
+            "When omitted, the current simulation clock is used."
+        )
+    )
+
+    run_window: Literal["morning", "afternoon", "evening", "night"] = Field(
+        default="morning",
+        description=(
+            "Contract window to execute. "
+            "Each window only allows the matching business domain and event types."
+        )
+    )
+
+    correlation_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Logical execution identity. Reusing it retries or resumes the "
+            "same business run; a new value starts an independent run."
+        ),
+    )
+
+    duration_hours: Optional[int] = Field(
+        default=None,
+        ge=1,
+        description=(
+            "Optional simulation horizon in hours. "
+            "When omitted, the scheduler continues until no due events remain."
         )
     )
 
