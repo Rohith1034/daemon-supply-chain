@@ -1,5 +1,6 @@
 import random
 import string
+import sys
 from datetime import timedelta, timezone
 
 from core.db import Database
@@ -85,7 +86,7 @@ SHIPMENT PICKUP STARTED
                     correlation_id
                 FROM outbound_shipments
                 WHERE shipment_id=%s
-                  AND shipment_status='PICKED_UP'
+                                    AND shipment_status='ASSIGNED'
                 LIMIT 1
                 """,
                 (
@@ -102,7 +103,7 @@ SHIPMENT PICKUP STARTED
                     order_id,
                     correlation_id
                 FROM outbound_shipments
-                WHERE shipment_status='PICKED_UP'
+                WHERE shipment_status='ASSIGNED'
                 ORDER BY created_at
                 LIMIT 1
                 """
@@ -139,7 +140,7 @@ SHIPMENT PICKUP STARTED
                 driver_id
             FROM outbound_shipment_transportation
             WHERE shipment_id=%s
-              AND status='PICKED_UP'
+                            AND status='ASSIGNED'
             LIMIT 1
             """,
             (
@@ -190,11 +191,13 @@ SHIPMENT PICKUP STARTED
             """
             UPDATE outbound_shipment_transportation
             SET
-                status='IN_TRANSIT',
+                status='PICKED_UP',
+                picked_up_at=%s,
                 updated_at=%s
             WHERE shipment_id=%s
             """,
             (
+                event_time,
                 event_time,
                 shipment_id
             )
@@ -210,7 +213,7 @@ SHIPMENT PICKUP STARTED
             """
             UPDATE outbound_shipments
             SET
-                shipment_status='IN_TRANSIT',
+                shipment_status='PICKED_UP',
                 updated_at=%s
             WHERE shipment_id=%s
             """,
@@ -257,7 +260,7 @@ SHIPMENT PICKUP STARTED
                 vehicle_id,
                 trailer_id,
                 driver_id,
-                "IN_TRANSIT",
+                "PICKED_UP",
                 round(
                     random.uniform(
                         25,
@@ -324,7 +327,7 @@ SHIPMENT PICKUP STARTED
 
 
                 "status":
-                    "IN_TRANSIT"
+                    "PICKED_UP"
 
             },
 
@@ -372,7 +375,7 @@ DRIVER:
 {driver_id}
 
 STATUS:
-IN_TRANSIT
+PICKED_UP
 
 ============================================================
 """
@@ -385,7 +388,7 @@ IN_TRANSIT
                 shipment_id,
 
             "status":
-                "IN_TRANSIT"
+                "PICKED_UP"
 
         }
 
@@ -396,7 +399,9 @@ if __name__ == "__main__":
 
     try:
 
-        generate_shipment_picked_up()
+        generate_shipment_picked_up(
+            sys.argv[1] if len(sys.argv) > 1 else None
+        )
 
     except Exception as e:
 

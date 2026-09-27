@@ -361,7 +361,7 @@ STATUS:
             FROM outbound_shipment_tracking
 
             WHERE shipment_id=%s
-              AND status='PICKED_UP'
+                            AND status IN ('PICKED_UP', 'IN_TRANSIT')
 
             ORDER BY created_at DESC
 
@@ -682,7 +682,7 @@ IN TRANSIT:
 
             WHERE tracking_id=%s
               AND shipment_id=%s
-              AND status='PICKED_UP'
+                            AND status IN ('PICKED_UP', 'IN_TRANSIT')
             """,
             (
                 latitude,

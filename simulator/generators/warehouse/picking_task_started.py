@@ -1,8 +1,7 @@
-from datetime import datetime, timezone
-
 from core.db import Database
 from core.outbox import publish_event
 from core.logger import log_event_success, log_event_failure
+from core.simulation_clock import get_simulation_now
 
 
 EVENT_NAME = "PickingTaskStarted"
@@ -39,7 +38,7 @@ CURRENT:
 """
             )
 
-        now = datetime.now(timezone.utc)
+        now = get_simulation_now()
 
         db.execute(
             """

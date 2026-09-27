@@ -1,5 +1,6 @@
 import random
 import string
+import sys
 from datetime import timezone
 
 from core.db import Database
@@ -197,19 +198,13 @@ Remaining tasks:
 
 
         if existing:
-
-
-            raise Exception(
-                f"""
-Packing task already exists
-
-TASK:
-{existing["task_id"]}
-
-STATUS:
-{existing["status"]}
-"""
-            )
+            return {
+                "task_id": existing["task_id"],
+                "order_id": order_id,
+                "correlation_id": correlation_id,
+                "status": "ALREADY_EXISTS",
+                "created_events": [],
+            }
 
 
 
@@ -254,6 +249,7 @@ STATUS:
                 task_type,
                 warehouse_id,
                 order_id,
+                picking_task_id,
                 quantity,
                 priority,
                 status,
@@ -265,7 +261,7 @@ STATUS:
             VALUES
             (
                 %s,%s,%s,%s,%s,
-                %s,%s,%s,%s,%s,%s
+                %s,%s,%s,%s,%s,%s,%s
             )
             """,
             (
@@ -273,6 +269,7 @@ STATUS:
                 "PACKING",
                 warehouse_id,
                 order_id,
+                picking_tasks[0]["task_id"],
                 total_quantity,
                 "NORMAL",
                 "CREATED",
@@ -423,7 +420,11 @@ if __name__ == "__main__":
 
     try:
 
-        generate_packing_task_created()
+        generate_packing_task_created(
+            sys.argv[1]
+            if len(sys.argv) > 1
+            else None
+        )
 
 
     except Exception as e:

@@ -16,7 +16,7 @@ from generators.warehouse.goods_received import generate_goods_received
 from generators.warehouse.packing_completed import generate_packing_completed
 
 
-def test_packing_completed_accepts_packing_row_in_pack_state():
+def test_packing_completed_accepts_started_task_and_retry_is_idempotent():
     packing_task_id = f"PACK-{uuid.uuid4().hex[:8].upper()}"
     picking_task_id = f"PICK-{uuid.uuid4().hex[:8].upper()}"
     order_id = f"ORDER-{uuid.uuid4().hex[:8].upper()}"
@@ -189,7 +189,7 @@ def test_packing_completed_accepts_packing_row_in_pack_state():
                 order_id,
                 "CUST-1",
                 "WH-00001",
-                "PACKING",
+                "STARTED",
                 "WEB",
                 "HIGH",
                 1,
@@ -277,12 +277,28 @@ def test_packing_completed_accepts_packing_row_in_pack_state():
             ),
         )
 
+        db.commit()
+
         result = generate_packing_completed(task_id=packing_task_id)
 
         db.execute("SELECT status FROM warehouse_tasks WHERE task_id=%s", (packing_task_id,))
         row = db.cursor.fetchone()
         assert row["status"] == "COMPLETED"
         assert result["task_id"] == packing_task_id
+
+        package_count = db.fetch_one(
+            "SELECT COUNT(*) AS count FROM packages WHERE order_id=%s",
+            (order_id,),
+        )["count"]
+        retry_result = generate_packing_completed(task_id=packing_task_id)
+        retry_package_count = db.fetch_one(
+            "SELECT COUNT(*) AS count FROM packages WHERE order_id=%s",
+            (order_id,),
+        )["count"]
+
+        assert retry_result["already_completed"] is True
+        assert retry_result["package_id"] == result["package_id"]
+        assert package_count == retry_package_count == 1
 
 
 
@@ -471,6 +487,7 @@ def test_goods_received_accepts_started_receiving_task():
             ),
         )
 
+        db.commit()
         result = generate_goods_received(task_id=task_id)
 
         db.execute("SELECT status FROM warehouse_tasks WHERE task_id=%s", (task_id,))

@@ -1,4 +1,5 @@
 from datetime import timedelta
+import os
 import random
 import uuid
 from decimal import Decimal
@@ -143,7 +144,9 @@ def generate_purchase_order():
         po_id = next_purchase_order_id(db)
 
 
-        correlation_id = str(uuid.uuid4())
+        correlation_id = os.getenv(
+            "SIMULATION_CORRELATION_ID"
+        ) or str(uuid.uuid4())
 
 
 

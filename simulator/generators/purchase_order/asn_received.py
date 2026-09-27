@@ -1,4 +1,5 @@
 from datetime import timedelta
+import os
 import random
 
 from core.db import Database
@@ -62,6 +63,10 @@ def generate_asn_received():
 
     with Database() as db:
 
+        run_correlation_id = os.getenv(
+            "SIMULATION_CORRELATION_ID"
+        )
+
         # ---------------------------------------
         # Find shipment waiting for ASN
         # ---------------------------------------
@@ -89,12 +94,14 @@ def generate_asn_received():
 
             WHERE
                 s.shipment_status='CREATED'
+                AND (%s IS NULL OR po.correlation_id=%s)
 
             ORDER BY
                 s.created_at
 
             LIMIT 1
-            """
+            """,
+            (run_correlation_id, run_correlation_id),
         )
 
 

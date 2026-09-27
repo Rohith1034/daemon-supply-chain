@@ -1,6 +1,7 @@
 from datetime import timedelta, timezone
 import random
 import sys
+import os
 
 from core.db import Database
 from core.logger import (
@@ -141,8 +142,9 @@ task_id,
 
 
         else:
-
-
+            run_correlation_id = os.getenv(
+                "SIMULATION_CORRELATION_ID"
+            )
             task = db.fetch_one(
 """
 SELECT
@@ -162,21 +164,26 @@ FROM warehouse_tasks
 
 WHERE task_type='RECEIVING'
 
-AND status='CREATED'
+            AND status='STARTED'
+            AND (%s IS NULL OR correlation_id=%s)
 
-ORDER BY created_at DESC
+            ORDER BY task_started_at DESC NULLS LAST, created_at DESC
 
 LIMIT 1
 
-"""
+""",
+(
+    run_correlation_id,
+    run_correlation_id,
+)
 )
 
 
 
         if not task:
-
             raise Exception(
                 "No STARTED receiving task found"
+                + (f" for task_id={task_id}" if task_id else "")
             )
 
 
@@ -743,6 +750,8 @@ if __name__ == "__main__":
 
             generate_goods_received(
                 sys.argv[1]
+                if len(sys.argv) > 1
+                else None
             )
 
         else:

@@ -1,5 +1,6 @@
 import random
 import string
+import sys
 from datetime import timedelta, timezone
 
 from core.db import Database
@@ -53,7 +54,7 @@ def _generate_id(prefix):
 # MAIN EVENT
 # ============================================================
 
-def generate_shipment_ready():
+def generate_shipment_ready(package_id=None):
 
 
     with Database() as db:
@@ -88,8 +89,10 @@ CREATING OUTBOUND SHIPMENT
             ON p.package_id = os.package_id
             WHERE p.package_status='PACKED'
             AND os.package_id IS NULL
+                            AND (%s IS NULL OR p.package_id=%s)
             LIMIT 1
-            """
+                        """,
+                        (package_id, package_id),
         )
 
 
@@ -446,7 +449,9 @@ if __name__ == "__main__":
 
     try:
 
-        generate_shipment_ready()
+        generate_shipment_ready(
+            sys.argv[1] if len(sys.argv) > 1 else None
+        )
 
 
     except Exception as e:

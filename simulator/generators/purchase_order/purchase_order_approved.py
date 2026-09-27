@@ -1,4 +1,5 @@
 from datetime import timedelta
+import os
 import random
 
 
@@ -29,6 +30,10 @@ def approve_purchase_order():
 
     with Database() as db:
 
+        run_correlation_id = os.getenv(
+            "SIMULATION_CORRELATION_ID"
+        )
+
 
         # --------------------------------
         # Find CREATED PO
@@ -39,11 +44,14 @@ def approve_purchase_order():
             SELECT *
             FROM purchase_orders
             WHERE po_status=%s
+              AND (%s IS NULL OR correlation_id=%s)
             ORDER BY order_date
             LIMIT 1
             """,
             (
                 POStatus.CREATED.value,
+                run_correlation_id,
+                run_correlation_id,
             )
         )
 
@@ -202,6 +210,9 @@ def approve_purchase_order():
                 po["order_date"].isoformat(),
 
             "approved_at":
+                approved_at.isoformat(),
+
+            "occurred_at":
                 approved_at.isoformat(),
 
             "items":

@@ -1,4 +1,5 @@
 from datetime import timezone
+import uuid
 
 from core.db import Database
 from core.outbox import publish_event
@@ -271,6 +272,22 @@ Required:
                 (
                     allocation["allocation_id"],
                 )
+            )
+
+            db.execute(
+                """INSERT INTO inventory_reservations
+                    (reservation_id, order_id, product_id, warehouse_id, quantity,
+                     reservation_status, reserved_at, correlation_id)
+                    VALUES (%s,%s,%s,%s,%s,'RESERVED',%s,%s)""",
+                (
+                    f"RESV-{uuid.uuid4().hex[:12].upper()}",
+                    order_id,
+                    allocation["product_id"],
+                    allocation["warehouse_id"],
+                    qty,
+                    _ensure_utc(get_simulation_now()),
+                    correlation_id,
+                ),
             )
 
 

@@ -139,7 +139,7 @@ OUTBOUND_INITIAL_FLOW = [
 # =====================================================
 
 PICKING_STARTED_FILE = (
-    "generators/warehouse/receiving_task_started.py"
+    "generators/warehouse/picking_task_started.py"
 )
 
 PICKING_COMPLETED_FILE = (
@@ -151,7 +151,7 @@ PACKING_CREATED_FILE = (
 )
 
 PACKING_STARTED_FILE = (
-    "generators/warehouse/receiving_task_started.py"
+    "generators/warehouse/packing_task_started.py"
 )
 
 PACKING_COMPLETED_FILE = (
@@ -369,6 +369,29 @@ def get_packing_task_for_picking_task(
         return None
 
     return row[0]
+
+
+def get_packing_task_for_order(order_id):
+
+    with get_db() as conn:
+
+        with conn.cursor() as cur:
+
+            cur.execute(
+                """
+                SELECT task_id
+                FROM warehouse_tasks
+                WHERE task_type='PACKING'
+                  AND order_id=%s
+                ORDER BY created_at ASC
+                LIMIT 1
+                """,
+                (order_id,),
+            )
+
+            row = cur.fetchone()
+
+    return row[0] if row else None
 
 
 # =====================================================
@@ -1067,6 +1090,18 @@ def build_static_event_args(
             context["order_id"]
         ]
 
+    elif event in ("ReceivingTaskStarted", "GoodsReceived"):
+
+        args = [
+            context["current_receiving_task"]
+        ]
+
+    elif event in ("StockIncreased", "InventoryPutaway"):
+
+        args = [
+            str(context["current_inventory_id"])
+        ]
+
     # =================================================
     # PICKING
     # =================================================
@@ -1192,6 +1227,59 @@ def update_context_after_static_event(
             allocation_ids
         )
 
+        return
+
+
+    if event == "ReceivingTaskCreated":
+
+        run_correlation_id = context.get("correlation_id")
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT task_id
+                    FROM warehouse_tasks
+                    WHERE task_type='RECEIVING'
+                                            AND (%s IS NULL OR correlation_id=%s)
+                    ORDER BY created_at DESC, task_id DESC
+                    LIMIT 1
+                                        """,
+                                        (run_correlation_id, run_correlation_id),
+                )
+                row = cur.fetchone()
+
+        if not row:
+            raise Exception(
+                "ReceivingTaskCreated succeeded but no receiving task was persisted"
+            )
+
+        context["current_receiving_task"] = row[0]
+        return
+
+
+    if event == "GoodsReceived":
+
+        run_correlation_id = context.get("correlation_id")
+        with get_db() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT inventory_id
+                    FROM inventory
+                    WHERE inventory_status='RECEIVED'
+                      AND (%s IS NULL OR correlation_id=%s)
+                    ORDER BY inventory_id
+                    """,
+                    (run_correlation_id, run_correlation_id),
+                )
+                rows = cur.fetchall()
+
+        if not rows:
+            raise Exception(
+                "GoodsReceived succeeded but no received inventory was persisted"
+            )
+
+        context["current_inventory_ids"] = [row[0] for row in rows]
         return
 
 
@@ -1639,7 +1727,7 @@ def execute_packing_task_creation(
     report
 ):
 
-    created_packing_ids = []
+    order_id = context.get("order_id")
 
     picking_task_ids = context.get(
         "picking_task_ids",
@@ -1652,45 +1740,25 @@ def execute_packing_task_creation(
             "No picking tasks available for packing"
         )
 
+    if not order_id:
+        raise Exception(
+            "No order available for packing"
+        )
+
     print()
     print("=" * 70)
     print("CREATING PACKING TASKS")
     print("=" * 70)
 
-    for picking_task_id in (
-        picking_task_ids
-    ):
+    packing_task_id = get_packing_task_for_order(order_id)
 
-        existing_packing_task = (
-            get_packing_task_for_picking_task(
-                picking_task_id
-            )
-        )
-
-        if existing_packing_task:
-
-            print(
-                "Packing task already exists:",
-                existing_packing_task,
-                "for picking task:",
-                picking_task_id
-            )
-
-            created_packing_ids.append(
-                existing_packing_task
-            )
-
-            continue
-
-        context[
-            "current_picking_task"
-        ] = picking_task_id
+    if not packing_task_id:
 
         result = execute_event(
             "PackingTaskCreated",
             PACKING_CREATED_FILE,
             [
-                picking_task_id
+                order_id
             ]
         )
 
@@ -1702,11 +1770,7 @@ def execute_packing_task_creation(
 
             return False
 
-        packing_task_id = (
-            get_packing_task_for_picking_task(
-                picking_task_id
-            )
-        )
+        packing_task_id = get_packing_task_for_order(order_id)
 
         if not packing_task_id:
 
@@ -1715,20 +1779,22 @@ def execute_packing_task_creation(
 PackingTaskCreated reported SUCCESS,
 but no packing task exists for:
 
-{picking_task_id}
+{order_id}
 """
             )
 
-        created_packing_ids.append(
-            packing_task_id
+    if not packing_task_id:
+        raise Exception(
+            f"No packing task persisted for order {order_id}"
         )
 
-        print(
-            "Saved Packing Task:",
-            packing_task_id,
-            "for Picking Task:",
-            picking_task_id
-        )
+    created_packing_ids = [packing_task_id]
+    print(
+        "Saved Packing Task:",
+        packing_task_id,
+        "for Order:",
+        order_id
+    )
 
     context[
         "current_picking_task"
@@ -2592,11 +2658,23 @@ def main():
         "order_id":
             None,
 
+        "correlation_id":
+            os.getenv("SIMULATION_CORRELATION_ID"),
+
         # ------------------------------
         # Inventory
         # ------------------------------
 
         "allocation_ids":
+            [],
+
+        "current_receiving_task":
+            None,
+
+        "current_inventory_id":
+            None,
+
+        "current_inventory_ids":
             [],
 
         # ------------------------------
@@ -2675,6 +2753,26 @@ def main():
             INBOUND_FLOW
         ):
 
+            if event in ("StockIncreased", "InventoryPutaway"):
+                inventory_ids = context.get("current_inventory_ids", [])
+                if not inventory_ids:
+                    raise Exception(
+                        f"No inventory IDs available for {event}"
+                    )
+
+                for inventory_id in inventory_ids:
+                    context["current_inventory_id"] = inventory_id
+                    success = execute_static_flow_event(
+                        event,
+                        file,
+                        context,
+                        report
+                    )
+                    if not success:
+                        return
+
+                continue
+
             success = (
                 execute_static_flow_event(
                     event,
@@ -2687,6 +2785,12 @@ def main():
             if not success:
 
                 return
+
+        if os.environ.get(
+            "SIMULATION_RUN_WINDOW",
+            "morning"
+        ).lower() == "morning":
+            return
 
         # =================================================
         # 2. INITIAL OUTBOUND

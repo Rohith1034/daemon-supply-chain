@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-25T14:00:00+00:00",
+  "generated_at": "2026-09-27T19:03:11.018888+00:00",
   "summary": {
     "events_tested": 42,
     "passed": 42,
@@ -22,7 +22,7 @@
       "checkpoint": "PASS",
       "errors": [],
       "warnings": [],
-      "execution_time_ms": 522
+      "execution_time_ms": 1156
     },
     {
       "event_name": "PurchaseOrderApproved",
@@ -38,10 +38,8 @@
       "timing": "PASS",
       "checkpoint": "PASS",
       "errors": [],
-      "warnings": [
-        "Handler PurchaseOrderApproved requires live state and cannot be exercised with synthetic validation context"
-      ],
-      "execution_time_ms": 264
+      "warnings": [],
+      "execution_time_ms": 585
     },
     {
       "event_name": "SupplierShipmentCreated",
@@ -57,10 +55,8 @@
       "timing": "PASS",
       "checkpoint": "PASS",
       "errors": [],
-      "warnings": [
-        "Handler SupplierShipmentCreated requires live state and cannot be exercised with synthetic validation context"
-      ],
-      "execution_time_ms": 251
+      "warnings": [],
+      "execution_time_ms": 750
     },
     {
       "event_name": "ASNReceived",
@@ -76,10 +72,8 @@
       "timing": "PASS",
       "checkpoint": "PASS",
       "errors": [],
-      "warnings": [
-        "Handler ASNReceived requires live state and cannot be exercised with synthetic validation context"
-      ],
-      "execution_time_ms": 270
+      "warnings": [],
+      "execution_time_ms": 513
     },
     {
       "event_name": "SupplierShipmentDelivered",
@@ -95,10 +89,8 @@
       "timing": "PASS",
       "checkpoint": "PASS",
       "errors": [],
-      "warnings": [
-        "Handler SupplierShipmentDelivered requires live state and cannot be exercised with synthetic validation context"
-      ],
-      "execution_time_ms": 259
+      "warnings": [],
+      "execution_time_ms": 550
     },
     {
       "event_name": "ReceivingTaskCreated",
@@ -115,7 +107,7 @@
       "checkpoint": "PASS",
       "errors": [],
       "warnings": [],
-      "execution_time_ms": 271
+      "execution_time_ms": 669
     },
     {
       "event_name": "ReceivingTaskStarted",
@@ -131,8 +123,10 @@
       "timing": "PASS",
       "checkpoint": "PASS",
       "errors": [],
-      "warnings": [],
-      "execution_time_ms": 259
+      "warnings": [
+        "Handler ReceivingTaskStarted requires live state and cannot be exercised with synthetic validation context"
+      ],
+      "execution_time_ms": 433
     },
     {
       "event_name": "GoodsReceived",
@@ -148,8 +142,10 @@
       "timing": "PASS",
       "checkpoint": "PASS",
       "errors": [],
-      "warnings": [],
-      "execution_time_ms": 259
+      "warnings": [
+        "Handler GoodsReceived requires live state and cannot be exercised with synthetic validation context"
+      ],
+      "execution_time_ms": 430
     },
     {
       "event_name": "StockIncreased",
@@ -168,7 +164,7 @@
       "warnings": [
         "Handler StockIncreased requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 311
+      "execution_time_ms": 431
     },
     {
       "event_name": "InventoryPutaway",
@@ -187,7 +183,7 @@
       "warnings": [
         "Handler InventoryPutaway requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 194
+      "execution_time_ms": 514
     },
     {
       "event_name": "InventoryReceived",
@@ -206,7 +202,7 @@
       "warnings": [
         "Handler InventoryReceived requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 241
+      "execution_time_ms": 393
     }
   ],
   "outbound": [
@@ -225,7 +221,7 @@
       "checkpoint": "PASS",
       "errors": [],
       "warnings": [],
-      "execution_time_ms": 406
+      "execution_time_ms": 578
     },
     {
       "event_name": "OrderItemCreated",
@@ -244,7 +240,7 @@
       "warnings": [
         "Handler OrderItemCreated requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 299
+      "execution_time_ms": 434
     },
     {
       "event_name": "InventoryAllocationCreated",
@@ -261,7 +257,7 @@
       "checkpoint": "PASS",
       "errors": [],
       "warnings": [],
-      "execution_time_ms": 1
+      "execution_time_ms": 2
     },
     {
       "event_name": "InventoryReserved",
@@ -278,7 +274,7 @@
       "checkpoint": "PASS",
       "errors": [],
       "warnings": [],
-      "execution_time_ms": 217
+      "execution_time_ms": 273
     },
     {
       "event_name": "PickingTaskCreated",
@@ -297,7 +293,7 @@
       "warnings": [
         "Handler PickingTaskCreated requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 349
+      "execution_time_ms": 473
     },
     {
       "event_name": "PickingTaskStarted",
@@ -316,7 +312,7 @@
       "warnings": [
         "Handler PickingTaskStarted requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 247
+      "execution_time_ms": 447
     },
     {
       "event_name": "PickingCompleted",
@@ -332,8 +328,10 @@
       "timing": "PASS",
       "checkpoint": "PASS",
       "errors": [],
-      "warnings": [],
-      "execution_time_ms": 271
+      "warnings": [
+        "Handler PickingCompleted requires live state and cannot be exercised with synthetic validation context"
+      ],
+      "execution_time_ms": 398
     },
     {
       "event_name": "PackingTaskCreated",
@@ -352,7 +350,7 @@
       "warnings": [
         "Handler PackingTaskCreated requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 282
+      "execution_time_ms": 442
     },
     {
       "event_name": "PackingTaskStarted",
@@ -371,7 +369,7 @@
       "warnings": [
         "Handler PackingTaskStarted requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 273
+      "execution_time_ms": 392
     },
     {
       "event_name": "PackingCompleted",
@@ -390,7 +388,7 @@
       "warnings": [
         "Handler PackingCompleted requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 280
+      "execution_time_ms": 395
     },
     {
       "event_name": "ShipmentReady",
@@ -428,7 +426,7 @@
       "warnings": [
         "Handler CarrierAssigned requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 271
+      "execution_time_ms": 523
     },
     {
       "event_name": "VehicleAssigned",
@@ -447,7 +445,7 @@
       "warnings": [
         "Handler VehicleAssigned requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 254
+      "execution_time_ms": 395
     },
     {
       "event_name": "ShipmentPickedUp",
@@ -466,7 +464,7 @@
       "warnings": [
         "Handler ShipmentPickedUp requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 250
+      "execution_time_ms": 430
     },
     {
       "event_name": "ShipmentDelivered",
@@ -485,7 +483,7 @@
       "warnings": [
         "Handler ShipmentDelivered requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 247
+      "execution_time_ms": 431
     }
   ],
   "transportation": [
@@ -506,7 +504,7 @@
       "warnings": [
         "Handler DriverAssigned requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 203
+      "execution_time_ms": 394
     },
     {
       "event_name": "ShipmentLoaded",
@@ -525,7 +523,7 @@
       "warnings": [
         "Handler ShipmentLoaded requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 202
+      "execution_time_ms": 391
     },
     {
       "event_name": "ShipmentInTransit",
@@ -544,7 +542,7 @@
       "warnings": [
         "Handler ShipmentInTransit requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 243
+      "execution_time_ms": 448
     },
     {
       "event_name": "ShipmentArrived",
@@ -563,7 +561,7 @@
       "warnings": [
         "Handler ShipmentArrived requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 243
+      "execution_time_ms": 429
     },
     {
       "event_name": "ShipmentDispatched",
@@ -582,7 +580,7 @@
       "warnings": [
         "Handler ShipmentDispatched requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 241
+      "execution_time_ms": 438
     },
     {
       "event_name": "CheckpointReached",
@@ -599,7 +597,7 @@
       "checkpoint": "PASS",
       "errors": [],
       "warnings": [],
-      "execution_time_ms": 2
+      "execution_time_ms": 1
     },
     {
       "event_name": "CycleCountCreated",
@@ -618,7 +616,7 @@
       "warnings": [
         "Handler CycleCountCreated requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 310
+      "execution_time_ms": 433
     },
     {
       "event_name": "CycleCountCompleted",
@@ -637,7 +635,7 @@
       "warnings": [
         "Handler CycleCountCompleted requires live state and cannot be exercised with synthetic validation context"
       ],
-      "execution_time_ms": 313
+      "execution_time_ms": 394
     },
     {
       "event_name": "TaskStarted",
@@ -653,10 +651,8 @@
       "timing": "PASS",
       "checkpoint": "PASS",
       "errors": [],
-      "warnings": [
-        "Handler TaskStarted requires live state and cannot be exercised with synthetic validation context"
-      ],
-      "execution_time_ms": 317
+      "warnings": [],
+      "execution_time_ms": 591
     }
   ],
   "edge_cases": [
@@ -704,9 +700,9 @@
     }
   ],
   "performance": {
-    "total_execution_time": "9094ms",
-    "average_event_time": "259.83ms",
-    "max_event_time": "522ms",
+    "total_execution_time": "15828ms",
+    "average_event_time": "452.23ms",
+    "max_event_time": "1156ms",
     "min_event_time": "1ms"
   }
 }

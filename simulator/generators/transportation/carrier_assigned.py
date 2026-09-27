@@ -1,4 +1,5 @@
 import random
+import sys
 from datetime import timezone
 
 from core.db import Database
@@ -72,9 +73,11 @@ ASSIGNING TRANSPORTATION
                 correlation_id
             FROM outbound_shipments
             WHERE shipment_status='READY'
+              AND (%s IS NULL OR shipment_id=%s)
             ORDER BY shipment_date
             LIMIT 1
-            """
+            """,
+            (shipment_id, shipment_id),
         )
 
 
@@ -428,7 +431,9 @@ if __name__ == "__main__":
 
     try:
 
-        generate_carrier_assigned()
+        generate_carrier_assigned(
+            sys.argv[1] if len(sys.argv) > 1 else None
+        )
 
 
     except Exception as e:

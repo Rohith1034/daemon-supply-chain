@@ -1,4 +1,5 @@
 import random
+import sys
 from datetime import timedelta, timezone
 
 from core.db import Database
@@ -458,7 +459,9 @@ if __name__ == "__main__":
 
     try:
 
-        generate_shipment_delivered()
+        generate_shipment_delivered(
+            sys.argv[1] if len(sys.argv) > 1 else None
+        )
 
 
     except Exception as e:

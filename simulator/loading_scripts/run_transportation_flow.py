@@ -1,18 +1,22 @@
-"""Deprecated testing utility: use master_simulator.run_simulation_cycle instead."""
+"""Run only the transportation lifecycle."""
 
-import os
+import json
 import sys
+from pathlib import Path
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+ROOT = Path(__file__).resolve().parents[2]
+SIMULATOR_ROOT = ROOT / "simulator"
+for path in (ROOT, SIMULATOR_ROOT):
+    if str(path) not in sys.path:
+        sys.path.insert(0, str(path))
 
-from master_simulator import run_simulation_cycle
+from loading_scripts.domain_flow_runner import run_domain_flow
 
 
 def main():
-    print("Testing utility only. Use master_simulator as the production scheduler entry point.")
-    return run_simulation_cycle()
+    result = run_domain_flow("transportation")
+    print(json.dumps(result, indent=2, default=str))
+    return result
 
 
 if __name__ == "__main__":

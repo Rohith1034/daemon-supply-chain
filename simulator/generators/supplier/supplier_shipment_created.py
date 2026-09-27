@@ -1,4 +1,5 @@
 from datetime import timedelta
+import os
 import random
 
 
@@ -96,6 +97,10 @@ def create_supplier_shipment(count=1):
 
         with Database() as db:
 
+            run_correlation_id = os.getenv(
+                "SIMULATION_CORRELATION_ID"
+            )
+
 
             # ------------------------------------------------
             # Find approved PO without shipment
@@ -112,11 +117,13 @@ def create_supplier_shipment(count=1):
 
                 WHERE po.po_status='APPROVED'
                   AND s.shipment_id IS NULL
+                                    AND (%s IS NULL OR po.correlation_id=%s)
 
                 ORDER BY po.created_at
 
                 LIMIT 1
-                """
+                                """,
+                                (run_correlation_id, run_correlation_id),
             )
 
 
@@ -373,6 +380,9 @@ def create_supplier_shipment(count=1):
 
 
                 "shipment_date":
+                    shipment_date.isoformat(),
+
+                "occurred_at":
                     shipment_date.isoformat(),
 
 

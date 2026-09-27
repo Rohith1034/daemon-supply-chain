@@ -1,5 +1,7 @@
 from datetime import timedelta, timezone
 import random
+import sys
+import os
 
 from core.db import Database
 from core.outbox import publish_event
@@ -81,23 +83,41 @@ def _get_task_started_time(task):
     )
 
 
-def generate_receiving_task_started():
+def generate_receiving_task_started(task_id=None):
     with Database() as db:
 
         # -----------------------------------------
         # Find CREATED receiving task
         # -----------------------------------------
 
-        task = db.fetch_one(
-            """
-            SELECT *
-            FROM warehouse_tasks
-            WHERE task_type='RECEIVING'
-              AND status='CREATED'
-            ORDER BY created_at
-            LIMIT 1
-            """
-        )
+        if task_id:
+            task = db.fetch_one(
+                """
+                SELECT *
+                FROM warehouse_tasks
+                WHERE task_id=%s
+                  AND task_type='RECEIVING'
+                  AND status='CREATED'
+                LIMIT 1
+                """,
+                (task_id,),
+            )
+        else:
+            run_correlation_id = os.getenv(
+                "SIMULATION_CORRELATION_ID"
+            )
+            task = db.fetch_one(
+                """
+                SELECT *
+                FROM warehouse_tasks
+                WHERE task_type='RECEIVING'
+                  AND status='CREATED'
+                  AND (%s IS NULL OR correlation_id=%s)
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (run_correlation_id, run_correlation_id),
+            )
 
         if not task:
             raise Exception(
@@ -295,7 +315,9 @@ if __name__ == "__main__":
 
     try:
 
-        generate_receiving_task_started()
+        generate_receiving_task_started(
+            sys.argv[1] if len(sys.argv) > 1 else None
+        )
 
 
     except Exception as e:

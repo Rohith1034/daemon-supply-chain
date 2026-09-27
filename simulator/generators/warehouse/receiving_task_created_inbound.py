@@ -1,4 +1,5 @@
 from datetime import timedelta
+import os
 import random
 
 from core.db import Database
@@ -115,6 +116,10 @@ def generate_receiving_task_created():
 
     with Database() as db:
 
+        run_correlation_id = os.getenv(
+            "SIMULATION_CORRELATION_ID"
+        )
+
         # ------------------------------------
         # Find delivered shipment
         # ------------------------------------
@@ -132,9 +137,11 @@ def generate_receiving_task_created():
             FROM shipments
             WHERE shipment_status='DELIVERED'
               AND receiving_task_created=false
+                            AND (%s IS NULL OR correlation_id=%s)
             ORDER BY updated_at
             LIMIT 1
-            """
+                        """,
+                        (run_correlation_id, run_correlation_id),
         )
 
 

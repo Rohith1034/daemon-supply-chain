@@ -17,6 +17,57 @@ from event_handlers.asn_received import handle as handle_asn_received
 from event_handlers.purchase_order_approved import handle as handle_purchase_order_approved
 from event_handlers.purchase_order_created import handle as handle_purchase_order_created
 from event_handlers.supplier_shipment_created import handle as handle_supplier_shipment_created
+from simulator.loading_scripts import run_event_flow
+from simulator.loading_scripts.run_event_flow import build_static_event_args
+
+
+def test_receiving_start_and_goods_received_share_saved_task_id():
+    context = {"current_receiving_task": "TASK-RECEIVING-1"}
+
+    assert build_static_event_args("ReceivingTaskStarted", context) == [
+        "TASK-RECEIVING-1"
+    ]
+    assert build_static_event_args("GoodsReceived", context) == [
+        "TASK-RECEIVING-1"
+    ]
+
+
+def test_stock_events_share_goods_received_inventory_id():
+    context = {"current_inventory_id": 42}
+
+    assert build_static_event_args("StockIncreased", context) == ["42"]
+    assert build_static_event_args("InventoryPutaway", context) == ["42"]
+
+
+def test_packing_creation_uses_order_identity(monkeypatch):
+    lookup_results = iter([None, "PACK-ORDER-1"])
+    observed = {}
+
+    monkeypatch.setattr(
+        run_event_flow,
+        "get_packing_task_for_order",
+        lambda order_id: next(lookup_results),
+    )
+
+    def fake_execute_event(event, _file, args):
+        observed["event"] = event
+        observed["args"] = args
+        return {"status": "SUCCESS"}
+
+    monkeypatch.setattr(run_event_flow, "execute_event", fake_execute_event)
+
+    context = {
+        "order_id": "ORDER-1",
+        "picking_task_ids": ["PICK-1", "PICK-2"],
+    }
+    report = []
+
+    assert run_event_flow.execute_packing_task_creation(context, report)
+    assert observed == {
+        "event": "PackingTaskCreated",
+        "args": ["ORDER-1"],
+    }
+    assert context["packing_task_ids"] == ["PACK-ORDER-1"]
 
 
 def test_handler_returns_success_status_and_future_event_contract(monkeypatch):

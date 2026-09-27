@@ -83,11 +83,12 @@ COMPLETING PACKING
                     order_id,
                     warehouse_id,
                     quantity,
-                    correlation_id
+                    correlation_id,
+                    status
                 FROM warehouse_tasks
                 WHERE task_id=%s
                   AND task_type='PACKING'
-                  AND status='CREATED'
+                                    AND status IN ('CREATED', 'PACKING', 'STARTED', 'COMPLETED')
                 LIMIT 1
                 """,
                 (
@@ -104,11 +105,17 @@ COMPLETING PACKING
                     order_id,
                     warehouse_id,
                     quantity,
-                    correlation_id
+                    correlation_id,
+                    status
                 FROM warehouse_tasks
                 WHERE task_type='PACKING'
-                  AND status='CREATED'
-                ORDER BY created_at
+                  AND status IN ('CREATED', 'PACKING', 'STARTED', 'COMPLETED')
+                ORDER BY CASE status
+                    WHEN 'STARTED' THEN 0
+                    WHEN 'PACKING' THEN 1
+                    WHEN 'CREATED' THEN 2
+                    ELSE 3
+                END, created_at
                 LIMIT 1
                 """
             )
@@ -129,6 +136,29 @@ COMPLETING PACKING
         correlation_id = str(
             task["correlation_id"]
         )
+
+        if task.get("status") == "COMPLETED":
+            existing_package = db.fetch_one(
+                """
+                SELECT package_id
+                FROM packages
+                WHERE order_id=%s
+                  AND correlation_id=%s
+                ORDER BY packed_at DESC
+                LIMIT 1
+                """,
+                (order_id, correlation_id),
+            )
+            if not existing_package:
+                raise Exception(
+                    f"Packing task {task_id} is completed but its package is missing"
+                )
+            return {
+                "task_id": task_id,
+                "package_id": existing_package["package_id"],
+                "status": "COMPLETED",
+                "already_completed": True,
+            }
 
 
 
@@ -441,7 +471,11 @@ if __name__ == "__main__":
 
     try:
 
-        generate_packing_completed()
+        import sys
+
+        generate_packing_completed(
+            sys.argv[1] if len(sys.argv) > 1 else None
+        )
 
 
     except Exception as e:

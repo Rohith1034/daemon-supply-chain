@@ -1,4 +1,5 @@
 from datetime import timedelta
+import os
 import random
 
 from core.db import Database
@@ -69,6 +70,10 @@ def deliver_supplier_shipment():
 
     with Database() as db:
 
+        run_correlation_id = os.getenv(
+            "SIMULATION_CORRELATION_ID"
+        )
+
 
         # ---------------------------------------
         # Find arrived shipment
@@ -92,11 +97,13 @@ def deliver_supplier_shipment():
             FROM shipments
 
             WHERE shipment_status='ASN_RECEIVED'
+                            AND (%s IS NULL OR correlation_id=%s)
 
             ORDER BY shipment_date
 
             LIMIT 1
-            """
+                        """,
+                        (run_correlation_id, run_correlation_id),
         )
 
 
@@ -225,6 +232,9 @@ def deliver_supplier_shipment():
 
 
             "delivered_at":
+                delivered_at.isoformat(),
+
+            "occurred_at":
                 delivered_at.isoformat(),
 
 
