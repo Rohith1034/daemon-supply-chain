@@ -1,3 +1,5 @@
+import os
+import sys
 import uuid
 import random
 
@@ -58,7 +60,7 @@ def _generate_order_id():
 # MAIN EVENT
 # ============================================================
 
-def generate_order_created():
+def generate_order_created(correlation_id=None):
 
 
     with Database() as db:
@@ -80,7 +82,9 @@ CREATING CUSTOMER ORDER
         # ====================================================
 
         correlation_id = str(
-            uuid.uuid4()
+            correlation_id
+            or os.getenv("SIMULATION_CORRELATION_ID")
+            or uuid.uuid4()
         )
 
 
@@ -431,7 +435,9 @@ if __name__ == "__main__":
 
     try:
 
-        generate_order_created()
+        generate_order_created(
+            sys.argv[1] if len(sys.argv) > 1 else None
+        )
 
 
     except Exception as e:

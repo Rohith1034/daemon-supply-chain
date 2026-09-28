@@ -19,6 +19,9 @@ venv/
 # Logs
 *.log
 
+# Simulator API run state and per-run reports
+output/simulation_runs/
+
 # Airflow
 airflow/logs/
 

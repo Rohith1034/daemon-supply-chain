@@ -19,11 +19,14 @@ PROJECT_ROOT = os.path.dirname(
     )
 )
 
-OUTPUT_FILE = os.path.join(
-    PROJECT_ROOT,
-    "..",
-    "output",
-    "event_execution_report.json"
+OUTPUT_FILE = os.environ.get(
+    "SIMULATION_REPORT_PATH",
+    os.path.join(
+        PROJECT_ROOT,
+        "..",
+        "output",
+        "event_execution_report.json"
+    ),
 )
 
 PYTHON = os.path.join(

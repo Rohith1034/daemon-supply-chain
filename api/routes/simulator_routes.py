@@ -1,6 +1,8 @@
 from fastapi import APIRouter, HTTPException
 
 from api.schemas.simulator_schema import (
+    IndependentSimulationRequest,
+    IndependentSimulationResponse,
     SimulationRequest,
     SimulationResponse
 )
@@ -10,6 +12,7 @@ from api.services.simulator_service import (
     get_latest_report
 )
 from api.services.simulation_control import simulation_manager
+from api.services.independent_simulation_service import independent_simulation_service
 
 
 router = APIRouter(
@@ -17,12 +20,40 @@ router = APIRouter(
 )
 
 
+def _run_independent_flow(flow, request):
+    return independent_simulation_service.run(
+        flow,
+        request or IndependentSimulationRequest(),
+    )
+
+
+@router.post("/simulation/inbound", response_model=IndependentSimulationResponse)
+def run_inbound(request: IndependentSimulationRequest | None = None):
+    return _run_independent_flow("inbound", request)
+
+
+@router.post("/simulation/outbound", response_model=IndependentSimulationResponse)
+def run_outbound(request: IndependentSimulationRequest | None = None):
+    return _run_independent_flow("outbound", request)
+
+
+@router.post("/simulation/transportation", response_model=IndependentSimulationResponse)
+def run_transportation(request: IndependentSimulationRequest | None = None):
+    return _run_independent_flow("transportation", request)
+
+
 @router.post("/simulation/start")
 def start_simulation(request: SimulationRequest | None = None):
     simulation_time = request.simulation_start_timestamp if request else None
     duration_hours = request.duration_hours if request else None
     run_window = request.run_window if request else "morning"
-    return simulation_manager.start(simulation_time, duration_hours=duration_hours, run_window=run_window)
+    correlation_id = request.correlation_id if request else None
+    return simulation_manager.start(
+        simulation_time,
+        duration_hours=duration_hours,
+        run_window=run_window,
+        correlation_id=correlation_id,
+    )
 
 
 @router.get("/simulation/{simulation_id}/status")

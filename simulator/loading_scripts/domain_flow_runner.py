@@ -31,7 +31,7 @@ def _new_context():
 
 def _execute(event, relative_script, context, args=None):
     script = Path(flow.PROJECT_ROOT) / relative_script
-    command = [flow.PYTHON, str(script)] + [str(value) for value in (args or [])]
+    command = [sys.executable, str(script)] + [str(value) for value in (args or [])]
     environment = os.environ.copy()
     inherited_pythonpath = environment.get("PYTHONPATH")
     pythonpath_entries = [str(SIMULATOR_ROOT), str(ROOT)]
@@ -82,7 +82,9 @@ def _run_outbound(context):
             event,
             script,
             context,
-            flow.build_static_event_args(event, context),
+            [context["correlation_id"]]
+            if event == "OrderCreated"
+            else flow.build_static_event_args(event, context),
         ))
 
     context["picking_task_ids"] = flow.get_picking_task_ids(context["order_id"])

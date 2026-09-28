@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import subprocess
 import sys
@@ -14,6 +15,7 @@ from api.schemas.simulator_schema import (
     SimulationRequest,
     SimulationResponse
 )
+from api.services.run_lock import simulation_execution_lock
 
 
 # ============================================================
@@ -100,7 +102,9 @@ def _tail(
 # ============================================================
 
 def _build_env(
-    request: SimulationRequest
+    request: SimulationRequest,
+    correlation_id: uuid.UUID,
+    report_path: Path,
 ) -> dict[str, str]:
 
     env = os.environ.copy()
@@ -119,10 +123,8 @@ def _build_env(
     env["SIMULATION_RUN_WINDOW"] = (
         str(request.run_window or "morning").lower()
     )
-    env["SIMULATION_CORRELATION_ID"] = str(
-        request.correlation_id
-        or uuid.uuid4()
-    )
+    env["SIMULATION_CORRELATION_ID"] = str(correlation_id)
+    env["SIMULATION_REPORT_PATH"] = str(report_path)
 
     # --------------------------------------------------------
     # IMPORTANT:
@@ -194,15 +196,15 @@ def _run_script(
 # READ REPORT
 # ============================================================
 
-def get_latest_report() -> list[dict[str, Any]] | None:
+def get_latest_report(report_path: Path = REPORT_FILE) -> list[dict[str, Any]] | None:
 
-    if not REPORT_FILE.exists():
+    if not report_path.exists():
         return None
 
     try:
 
         data = json.loads(
-            REPORT_FILE.read_text(
+            report_path.read_text(
                 encoding="utf-8"
             )
         )
@@ -365,7 +367,7 @@ def _is_flow_successful(
 # RUN FULL FLOW
 # ============================================================
 
-def run_full_flow(
+def _run_full_flow_unlocked(
     request: SimulationRequest
 ) -> SimulationResponse:
 
@@ -373,8 +375,18 @@ def run_full_flow(
         request.simulation_start_timestamp
     )
 
+    correlation_id = request.correlation_id or uuid.uuid4()
+    report_path = (
+        OUTPUT_DIR
+        / "simulation_runs"
+        / "legacy-full-flow"
+        / hashlib.sha256(str(correlation_id).encode("utf-8")).hexdigest()
+        / "event_execution_report.json"
+    )
     env = _build_env(
-        request
+        request,
+        correlation_id,
+        report_path,
     )
 
     # ========================================================
@@ -500,13 +512,13 @@ def run_full_flow(
                 ),
 
                 report_path=(
-                    str(REPORT_FILE)
-                    if REPORT_FILE.exists()
+                    str(report_path)
+                    if report_path.exists()
                     else None
                 ),
 
                 summary=_build_summary(
-                    get_latest_report()
+                    get_latest_report(report_path)
                 ),
 
                 stdout_tail=_tail(
@@ -527,9 +539,9 @@ def run_full_flow(
 
     try:
 
-        if REPORT_FILE.exists():
+        if report_path.exists():
 
-            REPORT_FILE.unlink()
+            report_path.unlink()
 
     except OSError:
         pass
@@ -577,7 +589,11 @@ def run_full_flow(
     # 5. READ EXECUTION REPORT
     # ========================================================
 
-    report = get_latest_report()
+    report = get_latest_report(report_path)
+
+    if report_path.exists():
+        REPORT_FILE.parent.mkdir(parents=True, exist_ok=True)
+        REPORT_FILE.write_text(report_path.read_text(encoding="utf-8"), encoding="utf-8")
 
     summary = _build_summary(
         report
@@ -616,8 +632,8 @@ def run_full_flow(
             ),
 
             report_path=(
-                str(REPORT_FILE)
-                if REPORT_FILE.exists()
+                str(report_path)
+                if report_path.exists()
                 else None
             ),
 
@@ -672,8 +688,8 @@ def run_full_flow(
         ),
 
         report_path=(
-            str(REPORT_FILE)
-            if REPORT_FILE.exists()
+            str(report_path)
+            if report_path.exists()
             else None
         ),
 
@@ -687,3 +703,8 @@ def run_full_flow(
             result.stderr
         )
     )
+
+
+def run_full_flow(request: SimulationRequest) -> SimulationResponse:
+    with simulation_execution_lock():
+        return _run_full_flow_unlocked(request)

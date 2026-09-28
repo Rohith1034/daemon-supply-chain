@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from typing import Any, Literal, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -26,7 +27,7 @@ class SimulationRequest(BaseModel):
         )
     )
 
-    correlation_id: Optional[str] = Field(
+    correlation_id: Optional[UUID] = Field(
         default=None,
         description=(
             "Logical execution identity. Reusing it retries or resumes the "
@@ -50,6 +51,25 @@ class SimulationRequest(BaseModel):
             "the simulation flow."
         )
     )
+
+
+class IndependentSimulationRequest(BaseModel):
+    simulation_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
+    correlation_id: Optional[UUID] = None
+    simulation_timestamp: Optional[datetime] = None
+
+
+class IndependentSimulationResponse(BaseModel):
+    status: Literal["SUCCESS", "FAILED"]
+    simulation_id: str
+    correlation_id: UUID
+    flow: Literal["inbound", "outbound", "transportation"]
+    simulation_timestamp: datetime
+    message: str
+    retryable: bool = False
+    replayed: bool = False
+    report_path: Optional[str] = None
+    summary: Optional[dict[str, Any]] = None
 
 
 # ============================================================
