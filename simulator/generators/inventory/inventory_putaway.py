@@ -1,4 +1,5 @@
 from datetime import timezone
+import os
 import sys
 
 from core.db import Database
@@ -195,7 +196,6 @@ SEARCHING STOCK READY FOR PUTAWAY
             AND inventory_status='AVAILABLE'
 
 
-            AND location_id IS NULL
 
 
             LIMIT 1
@@ -237,10 +237,44 @@ INVENTORY ID :
         quantity = inventory["available_quantity"]
 
 
-        correlation_id = str(
-            inventory["correlation_id"]
-        )
+        correlation_id = os.getenv("SIMULATION_CORRELATION_ID") or str(inventory["correlation_id"])
 
+        if inventory["location_id"]:
+            location = db.fetch_one(
+                """SELECT location_id,capacity_units,current_utilization
+                   FROM warehouse_locations
+                   WHERE location_id=%s AND warehouse_id=%s AND status='ACTIVE'
+                   FOR UPDATE""",
+                (inventory["location_id"], warehouse_id),
+            )
+            if not location:
+                raise Exception(f"Assigned inventory location is not active: {inventory['location_id']}")
+
+            if os.getenv("SIMULATION_CORRELATION_ID"):
+                received = db.fetch_one(
+                    """SELECT COALESCE(SUM(quantity),0) AS quantity
+                       FROM inventory_transactions
+                       WHERE inventory_id=%s AND correlation_id=%s
+                         AND transaction_type='GOODS_RECEIVED'""",
+                    (inventory_id, correlation_id),
+                )
+                quantity = received["quantity"]
+                if quantity <= 0:
+                    raise Exception(f"No goods-received quantity found for inventory {inventory_id}")
+            else:
+                quantity = inventory["available_quantity"]
+
+            remaining_capacity = location["capacity_units"] - location["current_utilization"]
+            if remaining_capacity < quantity:
+                raise Exception(
+                    f"Assigned location {location['location_id']} has {remaining_capacity} units of capacity; "
+                    f"{quantity} additional units are required"
+                )
+            location_id = location["location_id"]
+        else:
+            quantity = inventory["available_quantity"]
+            location = _find_storage_location(db, warehouse_id, quantity)
+            location_id = location["location_id"]
 
 
         print(
@@ -248,11 +282,6 @@ f"""
 ============================================================
 
 INVENTORY FOUND
-
-
-INVENTORY ID :
-{inventory_id}
-
 
 PRODUCT :
 {product_id}
@@ -281,22 +310,6 @@ STATUS :
             raise Exception(
                 f"Invalid available quantity {quantity}"
             )
-
-
-
-        # ====================================================
-        # FIND LOCATION
-        # ====================================================
-
-
-        location = _find_storage_location(
-            db,
-            warehouse_id,
-            quantity
-        )
-
-
-        location_id = location["location_id"]
 
 
 

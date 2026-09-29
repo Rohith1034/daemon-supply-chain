@@ -44,6 +44,10 @@ ML Models
 
 ## Independent Simulator Runs
 
+Apply `migrations/002_simulation_runs.sql` to PostgreSQL before starting the API. Each independent endpoint can then be called without a request body; PostgreSQL supplies the simulation ID, correlation ID, and default timestamp, and stores run status and results in `simulation_runs` instead of creating files under `output/simulation_runs`.
+
+Each request runs one lifecycle cycle. A scheduler can call the inbound endpoint during the 00:00-12:00 window and the outbound endpoint during the 06:00-18:00 window, up to 120-150 times per window. The API serializes cycles against the shared simulator database; scheduling and cycle counts remain the caller's responsibility.
+
 Run each lifecycle independently from the repository root:
 
 ```powershell

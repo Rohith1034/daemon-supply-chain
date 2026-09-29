@@ -18,6 +18,9 @@ from core.checkpointing import SimulationCheckpoint
 from api.services.independent_simulation_service import IndependentSimulationService
 from api.services import independent_simulation_service as service_module
 from simulator.loading_scripts import domain_flow_runner
+from simulator.generators.inventory import inventory_allocation_created
+from simulator.generators.inventory import inventory_reserved
+from simulator.generators.order import order_item_created
 
 
 SIMULATION_TIME = datetime(2026, 9, 28, 6, 0, tzinfo=timezone.utc)
@@ -33,13 +36,59 @@ def _result(context):
     }
 
 
-def _service(tmp_path, runner=_result, root_exists=lambda _context: False, validator=lambda _context, _result: []):
+def _database_factory():
+    records = {}
+
+    class FakeDatabase:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def fetch_one(self, query, params=None):
+            if "COALESCE(%s::varchar" in query:
+                simulation_id, correlation_id, simulation_timestamp = params
+                return {
+                    "simulation_id": simulation_id or str(uuid4()),
+                    "correlation_id": correlation_id or uuid4(),
+                    "simulation_timestamp": simulation_timestamp or datetime.now(timezone.utc),
+                }
+            if "WHERE simulation_id=%s" in query:
+                return records.get(params[0])
+            if "WHERE flow=%s AND correlation_id=%s" in query:
+                flow, correlation_id = params
+                return next((
+                    record for record in records.values()
+                    if record["flow"] == flow and record["correlation_id"] == correlation_id
+                ), None)
+            raise AssertionError(f"Unexpected query: {query}")
+
+        def execute(self, _query, params):
+            simulation_id, correlation_id, flow, timestamp, status, retryable, result, response, error = params
+            records[simulation_id] = {
+                "simulation_id": simulation_id,
+                "correlation_id": correlation_id,
+                "flow": flow,
+                "simulation_timestamp": timestamp,
+                "status": status,
+                "retryable": retryable,
+                "runner_result": json.loads(result) if result else None,
+                "response": json.loads(response),
+                "error": error,
+            }
+
+    FakeDatabase.records = records
+    return FakeDatabase
+
+
+def _service(tmp_path=None, runner=_result, root_exists=lambda _context: False, validator=lambda _context, _result: []):
     return IndependentSimulationService(
-        run_store=tmp_path,
         runner=runner,
         lock_factory=nullcontext,
         root_exists=root_exists,
         validator=validator,
+        database_factory=_database_factory(),
     )
 
 
@@ -67,7 +116,10 @@ def test_independent_routes_dispatch_to_their_flow(monkeypatch):
         )
         assert response.status_code == 200
         assert response.json()["flow"] == flow
-    assert [flow for flow, _request in calls] == ["inbound", "outbound", "transportation"]
+    response = client.post("/simulation/outbound")
+    assert response.status_code == 200
+    assert calls[-1][1] == IndependentSimulationRequest()
+    assert [flow for flow, _request in calls] == ["inbound", "outbound", "transportation", "outbound"]
 
 
 def test_independent_routes_reject_non_uuid_correlation():
@@ -95,6 +147,17 @@ def test_omitted_correlations_are_fresh_and_timestamp_is_propagated(tmp_path):
     assert all(context.simulation_timestamp == SIMULATION_TIME for context in contexts)
 
 
+def test_empty_request_uses_database_defaults_and_persists_run(tmp_path):
+    service = _service(tmp_path)
+    response = service.run("inbound", IndependentSimulationRequest())
+    stored = service.database_factory.records[response.simulation_id]
+
+    assert response.status == "SUCCESS"
+    assert response.report_path is None
+    assert stored["correlation_id"] == str(response.correlation_id)
+    assert stored["simulation_timestamp"] == response.simulation_timestamp
+
+
 def test_explicit_correlation_is_propagated_and_completed_retry_is_replayed(tmp_path):
     correlation_id = UUID("550e8400-e29b-41d4-a716-446655440000")
     simulation_id = "simulation-explicit-1"
@@ -111,14 +174,16 @@ def test_explicit_correlation_is_propagated_and_completed_retry_is_replayed(tmp_
         simulation_timestamp=SIMULATION_TIME,
     )
     first = service.run("outbound", request)
-    retry = service.run("outbound", request)
+    retry = service.run(
+        "outbound",
+        IndependentSimulationRequest(correlation_id=correlation_id),
+    )
 
     assert first.status == retry.status == "SUCCESS"
     assert first.correlation_id == retry.correlation_id == correlation_id
     assert retry.replayed is True
     assert len(contexts) == 1
-    assert first.report_path is not None
-    assert Path(first.report_path).is_file()
+    assert first.report_path is None
 
 
 def test_api_runner_passes_resolved_context_to_subprocess(monkeypatch):
@@ -165,12 +230,12 @@ def test_outbound_runner_passes_correlation_to_order_root(monkeypatch):
     correlation_id = str(uuid4())
     observed = {}
 
-    def fake_run(command, **kwargs):
-        observed["command"] = command
-        observed["env"] = kwargs["env"]
-        return subprocess.CompletedProcess(command, 0, "root created", "")
+    def fake_run_path(script, run_name):
+        observed["script"] = script
+        observed["run_name"] = run_name
+        observed["argv"] = list(domain_flow_runner.sys.argv)
 
-    monkeypatch.setattr(domain_flow_runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(domain_flow_runner.runpy, "run_path", fake_run_path)
     monkeypatch.setattr(domain_flow_runner.flow, "update_context_after_static_event", lambda *_args: None)
     domain_flow_runner._execute(
         "OrderCreated",
@@ -179,8 +244,24 @@ def test_outbound_runner_passes_correlation_to_order_root(monkeypatch):
         [correlation_id],
     )
 
-    assert observed["command"][-1] == correlation_id
-    assert observed["env"]["PYTHONPATH"].startswith(str(domain_flow_runner.SIMULATOR_ROOT))
+    assert observed["argv"][-1] == correlation_id
+    assert observed["run_name"] == "__main__"
+    assert str(domain_flow_runner.SIMULATOR_ROOT) in domain_flow_runner.sys.path
+
+
+def test_outbound_generator_entrypoints_use_passed_order_id(monkeypatch):
+    order_ids = []
+    monkeypatch.setattr(order_item_created, "generate_order_item_created", order_ids.append)
+    monkeypatch.setattr(inventory_allocation_created, "generate_inventory_allocation_created", order_ids.append)
+    monkeypatch.setattr(inventory_reserved, "generate_inventory_reserved", order_ids.append)
+    monkeypatch.setattr(order_item_created.sys, "argv", ["order_item_created.py", "ORD-ITEM-1"])
+    order_item_created.main()
+    monkeypatch.setattr(inventory_allocation_created.sys, "argv", ["inventory_allocation_created.py", "ORD-ALLOC-1"])
+    inventory_allocation_created.main()
+    monkeypatch.setattr(inventory_reserved.sys, "argv", ["inventory_reserved.py", "ORD-RESERVE-1"])
+    inventory_reserved.main()
+
+    assert order_ids == ["ORD-ITEM-1", "ORD-ALLOC-1", "ORD-RESERVE-1"]
 
 
 def test_failed_run_with_existing_root_is_not_replayed(tmp_path):
@@ -211,7 +292,7 @@ def test_failed_run_with_existing_root_is_not_replayed(tmp_path):
     assert len(executions) == 1
 
 
-def test_failed_post_run_validation_keeps_runner_result_artifact(tmp_path):
+def test_failed_post_run_validation_keeps_runner_result_in_database(tmp_path):
     root_exists = [False]
 
     def runner(context):
@@ -230,7 +311,7 @@ def test_failed_post_run_validation_keeps_runner_result_artifact(tmp_path):
         IndependentSimulationRequest(correlation_id=uuid4(), simulation_timestamp=SIMULATION_TIME),
     )
 
-    stored = json.loads(Path(response.report_path).read_text(encoding="utf-8"))
+    stored = service.database_factory.records[response.simulation_id]["runner_result"]
     assert response.status == "FAILED"
     assert stored["domain"] == "outbound"
     assert stored["events"][0]["status"] == "SUCCESS"
@@ -260,7 +341,7 @@ def test_retry_before_root_creation_can_run_again(tmp_path):
     assert attempts[0].correlation_id == attempts[1].correlation_id
 
 
-def test_different_runs_get_separate_artifacts(tmp_path):
+def test_different_runs_are_stored_without_file_artifacts(tmp_path):
     service = _service(tmp_path)
     first = service.run(
         "inbound",
@@ -271,8 +352,7 @@ def test_different_runs_get_separate_artifacts(tmp_path):
         IndependentSimulationRequest(simulation_id="simulation-b", correlation_id=uuid4()),
     )
 
-    assert first.report_path != second.report_path
-    assert (tmp_path / "_correlations").is_dir()
+    assert first.report_path is second.report_path is None
     assert first.correlation_id != second.correlation_id
 
 

@@ -1,5 +1,6 @@
 from datetime import timedelta
 import random
+import sys
 
 from core.db import Database
 from core.outbox import publish_event
@@ -511,12 +512,16 @@ ITEMS CREATED :
 # MAIN
 # ============================================================
 
+def main():
+    generate_order_item_created(sys.argv[1] if len(sys.argv) > 1 else None)
+
+
 if __name__ == "__main__":
 
 
     try:
 
-        generate_order_item_created()
+        main()
 
 
     except Exception as e:

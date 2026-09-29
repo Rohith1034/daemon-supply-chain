@@ -1,4 +1,5 @@
 from datetime import timezone
+import sys
 import uuid
 
 from core.db import Database
@@ -476,12 +477,16 @@ RESERVED ITEMS:
 # MAIN
 # ============================================================
 
+def main():
+    generate_inventory_reserved(sys.argv[1] if len(sys.argv) > 1 else None)
+
+
 if __name__ == "__main__":
 
 
     try:
 
-        generate_inventory_reserved()
+        main()
 
 
     except Exception as e:

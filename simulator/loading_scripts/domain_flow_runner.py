@@ -1,5 +1,7 @@
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 import os
-import subprocess
+import runpy
 import sys
 import uuid
 from datetime import timedelta
@@ -31,27 +33,30 @@ def _new_context():
 
 def _execute(event, relative_script, context, args=None):
     script = Path(flow.PROJECT_ROOT) / relative_script
-    command = [sys.executable, str(script)] + [str(value) for value in (args or [])]
-    environment = os.environ.copy()
-    inherited_pythonpath = environment.get("PYTHONPATH")
-    pythonpath_entries = [str(SIMULATOR_ROOT), str(ROOT)]
-    if inherited_pythonpath:
-        pythonpath_entries.append(inherited_pythonpath)
-    environment["PYTHONPATH"] = os.pathsep.join(pythonpath_entries)
-    result = subprocess.run(
-        command,
-        cwd=flow.PROJECT_ROOT,
-        capture_output=True,
-        text=True,
-        env=environment,
-    )
-    if result.returncode:
+    stdout = StringIO()
+    stderr = StringIO()
+    previous_argv = sys.argv
+    previous_directory = os.getcwd()
+    failure = None
+    try:
+        sys.argv = [str(script), *[str(value) for value in (args or [])]]
+        os.chdir(flow.PROJECT_ROOT)
+        with redirect_stdout(stdout), redirect_stderr(stderr):
+            runpy.run_path(str(script), run_name="__main__")
+    except SystemExit as exc:
+        if exc.code not in (None, 0):
+            failure = f"exit {exc.code}"
+    except Exception as exc:
+        failure = f"exit 1: {exc}"
+    finally:
+        sys.argv = previous_argv
+        os.chdir(previous_directory)
+    if failure:
         raise RuntimeError(
-            f"{event} failed (exit {result.returncode})\n"
-            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+            f"{event} failed ({failure})\nstdout:\n{stdout.getvalue()}\nstderr:\n{stderr.getvalue()}"
         )
     flow.update_context_after_static_event(event, context)
-    return {"event": event, "status": "SUCCESS", "stdout": result.stdout}
+    return {"event": event, "status": "SUCCESS", "stdout": stdout.getvalue()}
 
 
 def _run_inbound(context):

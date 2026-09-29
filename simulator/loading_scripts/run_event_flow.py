@@ -1268,12 +1268,12 @@ def update_context_after_static_event(
                 cur.execute(
                     """
                     SELECT inventory_id
-                    FROM inventory
-                    WHERE inventory_status='RECEIVED'
-                      AND (%s IS NULL OR correlation_id=%s)
+                                        FROM inventory_transactions
+                                        WHERE transaction_type='GOODS_RECEIVED'
+                                            AND correlation_id=%s
                     ORDER BY inventory_id
                     """,
-                    (run_correlation_id, run_correlation_id),
+                                        (run_correlation_id,),
                 )
                 rows = cur.fetchall()
 

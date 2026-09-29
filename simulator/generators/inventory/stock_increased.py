@@ -1,4 +1,5 @@
 from datetime import timezone
+import os
 import sys
 
 from core.db import Database
@@ -147,9 +148,7 @@ INVENTORY ID :
             or 0
         )
 
-        correlation_id = str(
-            inventory["correlation_id"]
-        )
+        correlation_id = os.getenv("SIMULATION_CORRELATION_ID") or str(inventory["correlation_id"])
 
 
 

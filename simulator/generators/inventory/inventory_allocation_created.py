@@ -1,5 +1,6 @@
 import random
 import string
+import sys
 from datetime import timezone
 
 from core.db import Database
@@ -279,7 +280,7 @@ CORRELATION ID : {correlation_id}
         # PROCESS EACH PRODUCT
         # ====================================================
 
-        for item in items:
+        for item_index, item in enumerate(items):
 
 
             product_id = item["product_id"]
@@ -472,6 +473,9 @@ WAREHOUSE:
                 """
                 )
 
+            if item_index < len(items) - 1:
+                continue
+
                 # ====================================================
                 # EVENT TIME
                 # ====================================================
@@ -589,10 +593,14 @@ WAREHOUSE:
         # MAIN
         # ============================================================
 
+def main():
+    generate_inventory_allocation_created(sys.argv[1] if len(sys.argv) > 1 else None)
+
+
 if __name__ == "__main__":
 
     try:
-        generate_inventory_allocation_created()
+        main()
     except Exception as e:
 
         log_event_failure(
