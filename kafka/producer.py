@@ -93,6 +93,7 @@ def onMsgSuccess(err, msg, row):
         )
 
 for row in rows:
+    print(row)
     event_type = row[2]
     key = str(row[4]).encode('utf-8')
     value = json.dumps(row[6]).encode('utf-8')

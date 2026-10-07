@@ -51,9 +51,35 @@ Each request runs one lifecycle cycle. A scheduler can call the inbound endpoint
 Run each lifecycle independently from the repository root:
 
 ```powershell
-.\.venv\Scripts\python.exe simulator\loading_scripts\run_inbound_flow.py
-.\.venv\Scripts\python.exe simulator\loading_scripts\run_outbound_flow.py
-.\.venv\Scripts\python.exe simulator\loading_scripts\run_transportation_flow.py
+.\.venv\Scripts\python.exe -m uvicorn api.main:app --reload
+
+$base = "http://127.0.0.1:8000"
+Invoke-RestMethod -Method Post -Uri "$base/simulation/inbound"
+Invoke-RestMethod -Method Post -Uri "$base/simulation/outbound"
+Invoke-RestMethod -Method Post -Uri "$base/simulation/transportation"
+
+
+$base = "http://127.0.0.1:8000"
+$flow = "inbound" # use "inbound" for inbound cycles
+
+for ($i = 1; $i -le 30; $i++) {
+    $result = Invoke-RestMethod -Method Post -Uri "$base/simulation/$flow"
+    if ($result.status -ne "SUCCESS") {
+        throw "$flow cycle $i failed: $($result.message)"
+    }
+    Write-Host "$i/30 $flow succeeded: $($result.simulation_id)"
+}
+
+$base = "http://127.0.0.1:8000"
+$flow = "outbound" # use "inbound" for inbound cycles
+
+for ($i = 1; $i -le 30; $i++) {
+    $result = Invoke-RestMethod -Method Post -Uri "$base/simulation/$flow"
+    if ($result.status -ne "SUCCESS") {
+        throw "$flow cycle $i failed: $($result.message)"
+    }
+    Write-Host "$i/30 $flow succeeded: $($result.simulation_id)"
+}
 ```
 
 To reset transactional tables and run all three flows three times, use:

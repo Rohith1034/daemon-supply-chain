@@ -33,6 +33,16 @@ def _ensure_utc(value):
     )
 
 
+def _get_stock_increased_time(last_updated_at, simulation_now):
+    received_at = _ensure_utc(last_updated_at)
+    current_time = _ensure_utc(simulation_now)
+    if received_at is None:
+        return current_time
+    if current_time is None:
+        return received_at
+    return max(received_at, current_time)
+
+
 
 # ============================================================
 # MAIN EVENT
@@ -261,6 +271,10 @@ AVAILABLE :
 
         simulation_now = _ensure_utc(
             get_simulation_now()
+        )
+        simulation_now = _get_stock_increased_time(
+            inventory["last_updated_at"],
+            simulation_now,
         )
 
 

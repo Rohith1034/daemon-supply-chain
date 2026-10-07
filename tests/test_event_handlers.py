@@ -19,6 +19,7 @@ from event_handlers.purchase_order_created import handle as handle_purchase_orde
 from event_handlers.supplier_shipment_created import handle as handle_supplier_shipment_created
 from simulator.loading_scripts import run_event_flow
 from simulator.loading_scripts.run_event_flow import build_static_event_args
+from generators.inventory.stock_increased import _get_stock_increased_time
 
 
 def test_receiving_start_and_goods_received_share_saved_task_id():
@@ -37,6 +38,20 @@ def test_stock_events_share_goods_received_inventory_id():
 
     assert build_static_event_args("StockIncreased", context) == ["42"]
     assert build_static_event_args("InventoryPutaway", context) == ["42"]
+
+
+def test_stock_increased_time_cannot_precede_goods_received():
+    received_at = datetime(2026, 10, 9, 13, 44, tzinfo=timezone.utc)
+    simulation_now = datetime(2026, 10, 5, 18, 59, tzinfo=timezone.utc)
+
+    assert _get_stock_increased_time(received_at, simulation_now) == received_at
+
+
+def test_stock_increased_time_uses_current_time_after_receipt():
+    received_at = datetime(2026, 10, 5, 18, 0, tzinfo=timezone.utc)
+    simulation_now = datetime(2026, 10, 5, 18, 59, tzinfo=timezone.utc)
+
+    assert _get_stock_increased_time(received_at, simulation_now) == simulation_now
 
 
 def test_packing_creation_uses_order_identity(monkeypatch):
