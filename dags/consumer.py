@@ -1,8 +1,12 @@
+from airflow.providers.standard.sensors.external_task import ExternalTaskSensor
 from confluent_kafka import Consumer,KafkaError
 from google.cloud import storage
 import json
 from datetime import datetime
 from time import time
+from airflow.providers.standard.operators.python import PythonOperator
+from airflow.sdk import DAG
+from airflow.sdk.exceptions import AirflowFailException
 
 conf = {
     "bootstrap.servers":"pkc-619z3.us-east1.gcp.confluent.cloud:9092",
@@ -75,54 +79,69 @@ def place_it_in_GCS(msg):
     return f"Uploaded file in {base_url}"
 
 
-try:
-    idle_timeout = 30
-    last_message_time = time()
-    while True:
-
-        msg = consumer.poll(timeout=1.0)
-
-        if msg is None:
-
-            if time() - last_message_time > idle_timeout:
-                print("No new messages. Exiting consumer.")
-                break
-
-            continue
-
+def main_consumer():
+    try:
+        idle_timeout = 30
         last_message_time = time()
+        while True:
 
-        if msg.error():
+            msg = consumer.poll(timeout=1.0)
 
-            if msg.error().code() == KafkaError._PARTITION_EOF:
+            if msg is None:
+
+                if time() - last_message_time > idle_timeout:
+                    print("No new messages. Exiting consumer.")
+                    break
+
                 continue
+
+            last_message_time = time()
+
+            if msg.error():
+
+                if msg.error().code() == KafkaError._PARTITION_EOF:
+                    continue
+
+                else:
+                    print(msg.error())
+                    continue
+
 
             else:
-                print(msg.error())
-                continue
 
+                result = {
+                    'topic': msg.topic(),
+                    'timestamp_value': str(msg.timestamp()[1]),
+                    'partition': str(msg.partition()),
+                    'offset': str(msg.offset()),
+                    'key': msg.key().decode() if msg.key() else None,
+                    'value': msg.value().decode()
+                }
 
-        else:
+                upload_result = place_it_in_GCS(result)
 
-            result = {
-                'topic': msg.topic(),
-                'timestamp_value': str(msg.timestamp()[1]),
-                'partition': str(msg.partition()),
-                'offset': str(msg.offset()),
-                'key': msg.key().decode() if msg.key() else None,
-                'value': msg.value().decode()
-            }
+                print(upload_result)
 
-            upload_result = place_it_in_GCS(result)
-
-            print(upload_result)
-
-            if upload_result:
-                consumer.commit(message=msg)
+                if upload_result:
+                    consumer.commit(message=msg)
 
 
 
-except KeyboardInterrupt:
-    pass
-finally:
-    consumer.close()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        consumer.close()
+
+with DAG(
+     dag_id="kafka_consumer",
+     start_date=datetime.datetime(2021, 1, 1),
+     schedule=None,
+     max_active_runs=1,
+     catchup=False
+) as dag:
+    t1 = PythonOperator(
+        task_id="consumer",
+        python_callable=main_consumer
+    )
+
+    t1
