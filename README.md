@@ -51,6 +51,10 @@ Each request runs one lifecycle cycle. A scheduler can call the inbound endpoint
 Run each lifecycle independently from the repository root:
 
 ```powershell
+gcloud compute ssh daemon-vm --zone=asia-south1-c --ssh-flag="-N" --ssh-flag="-L 55432:127.0.0.1:5432"
+
+"C:\Program Files\PostgreSQL\18\bin\psql.exe" -h 127.0.0.1 -p 55432 -U supplychain_app -d supply_chain 
+
 .\.venv\Scripts\python.exe -m uvicorn api.main:app --reload
 
 $base = "http://127.0.0.1:8000"

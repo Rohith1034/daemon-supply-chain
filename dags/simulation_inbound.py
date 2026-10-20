@@ -1,0 +1,115 @@
+import datetime
+import os
+from uuid import NAMESPACE_URL, uuid5
+
+import psycopg2
+import requests
+from airflow.providers.standard.operators.python import PythonOperator
+from airflow.sdk import DAG
+from airflow.sdk.exceptions import AirflowFailException
+
+def check_api_status():
+    response = requests.get("http://host.docker.internal:8000")
+    if response.status_code != 200:
+        raise AirflowFailException("API is not up.❌❌❌")
+
+    print("API is up and running.✅✅✅")
+
+def check_postgres_status():
+    required_settings = {
+        "dbname": "supply_chain",
+        "user": "supplychain_app",
+        "password": "Cr7@1034",
+    }
+    missing_settings = [
+        name for name, value in required_settings.items() if not value
+    ]
+    if missing_settings:
+        raise AirflowFailException(
+            f"Missing PostgreSQL connection settings: {', '.join(missing_settings)}"
+        )
+
+    try:
+        connection = psycopg2.connect(
+            host=os.getenv("PGHOST", "host.docker.internal"),
+            port=int(os.getenv("PGPORT", "55432")),
+            connect_timeout=5,
+            **required_settings,
+        )
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+                cursor.fetchone()
+        finally:
+            connection.close()
+    except (psycopg2.Error, ValueError) as exc:
+        raise AirflowFailException(
+            f"PostgreSQL connection failed: {exc}"
+        ) from exc
+
+    print("Postgres is up and running ✅✅✅")
+
+def inbound_simulation(**context):
+    base_url = "http://host.docker.internal:8000"
+    flow = "simulation/inbound"
+    endpoint = f"{base_url}/{flow}"
+    dag_run = context.get("dag_run")
+    if dag_run is None:
+        raise AirflowFailException("Missing Airflow DAG run context")
+
+    for call_number in range(1, 31):
+        correlation_id = uuid5(
+            NAMESPACE_URL,
+            f"{dag_run.dag_id}:{dag_run.run_id}:inbound:{call_number}",
+        )
+        print(f"Starting inbound simulation {call_number}/30: {endpoint}")
+        try:
+            response = requests.post(
+                endpoint,
+                json={"correlation_id": str(correlation_id)},
+                timeout=(10, 300),
+            )
+            response.raise_for_status()
+            result = response.json()
+        except (requests.RequestException, ValueError) as exc:
+            raise AirflowFailException(
+                f"Inbound simulation {call_number}/30 request failed: {exc}"
+            ) from exc
+
+        if result.get("status") != "SUCCESS":
+            raise AirflowFailException(
+                f"Inbound simulation {call_number}/30 failed "
+                f"(simulation_id={result.get('simulation_id')}): "
+                f"{result.get('message', 'API returned a non-success status')}"
+            )
+
+        print(
+            f"Inbound simulation {call_number}/30 succeeded "
+            f"(simulation_id={result.get('simulation_id')}, "
+            f"correlation_id={result.get('correlation_id')})"
+        )
+
+
+with DAG(
+     dag_id="simulation_inbound",
+     start_date=datetime.datetime(2021, 1, 1),
+     schedule="*/10 */4 * * *",
+     max_active_runs=1,
+     catchup=False
+) as dag:
+    t1 = PythonOperator(
+        task_id="check_api_status",
+        python_callable=check_api_status
+    )
+
+    t2 = PythonOperator(
+        task_id="check_postgres_status",
+        python_callable=check_postgres_status
+    )
+
+    t3 = PythonOperator(
+        task_id="inbound_simulation",
+        python_callable=inbound_simulation
+    )
+
+    t1 >> t2 >> t3
