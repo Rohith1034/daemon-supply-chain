@@ -46,11 +46,9 @@
 ---
 x-airflow-common:
   &airflow-common
-  # In order to add custom dependencies or upgrade provider distributions you can use your extended image.
-  # Comment the image line, place your Dockerfile in the directory where you placed the docker-compose.yaml
-  # and uncomment the "build" line below, Then run `docker-compose build` to build the images.
-  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:3.3.2}
-  # build: .
+  # Build the Kafka client into every Airflow service image.
+  image: ${AIRFLOW_IMAGE_NAME:-daemon-supply-chain-airflow:3.3.2}
+  build: .
   env_file:
     - ${ENV_FILE_PATH:-.env}
   environment:
@@ -60,12 +58,27 @@ x-airflow-common:
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CELERY__RESULT_BACKEND: db+postgresql+psycopg2://airflow:airflow@postgres/airflow
     AIRFLOW__CELERY__BROKER_URL: redis://:@redis:6379/0
-    AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY}
+    AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY:?Set FERNET_KEY in .env}
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
     AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: 'http://airflow-apiserver:8080/execution/'
-    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:-airflow_jwt_secret}
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:?Set AIRFLOW__API_AUTH__JWT_SECRET in .env}
     AIRFLOW__API_AUTH__JWT_ISSUER: ${AIRFLOW__API_AUTH__JWT_ISSUER:-airflow}
+    PYTHONPATH: /opt/airflow
+    DB_HOST: ${SIMULATOR_DB_HOST:-host.docker.internal}
+    DB_PORT: ${SIMULATOR_DB_PORT:-5432}
+    DB_NAME: ${SIMULATOR_DB_NAME:-supply_chain}
+    DB_USER: ${SIMULATOR_DB_USER:-}
+    DB_PASSWORD: ${SIMULATOR_DB_PASSWORD:-}
+    KAFKA_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:-}
+    KAFKA_SECURITY_PROTOCOL: ${KAFKA_SECURITY_PROTOCOL:-SASL_SSL}
+    KAFKA_SASL_MECHANISMS: ${KAFKA_SASL_MECHANISMS:-PLAIN}
+    KAFKA_SASL_USERNAME: ${KAFKA_SASL_USERNAME:-}
+    KAFKA_SASL_PASSWORD: ${KAFKA_SASL_PASSWORD:-}
+    KAFKA_CLIENT_ID: ${KAFKA_CLIENT_ID:-daemon-supply-chain}
+    KAFKA_GROUP_ID: ${KAFKA_GROUP_ID:-daemon-supply-chain-consumer}
+    GCS_BUCKET: ${GCS_BUCKET:-daemon-supply-bronze}
+    SIMULATOR_API_URL: http://simulator-api:8000
     # yamllint disable rule:line-length
     # Use simple http server on scheduler for health checks
     # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server
@@ -76,20 +89,56 @@ x-airflow-common:
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
     # The following line can be used to set a custom config file, stored in the local config folder
     AIRFLOW_CONFIG: '/opt/airflow/config/airflow.cfg'
+    GOOGLE_APPLICATION_CREDENTIALS: /run/secrets/gcp-service-account.json
   volumes:
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
+    - ${AIRFLOW_PROJ_DIR:-.}/simulator:/opt/airflow/simulator:ro
+    - type: bind
+      source: ${GOOGLE_APPLICATION_CREDENTIALS_HOST:-./credentials/daemon-supply-chain-dc9d68e4bf2c.json}
+      target: /run/secrets/gcp-service-account.json
+      read_only: true
   user: "${AIRFLOW_UID:-50000}:0"
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
   depends_on:
     &airflow-common-depends-on
     redis:
       condition: service_healthy
     postgres:
       condition: service_healthy
+    simulator-api:
+      condition: service_healthy
 
 services:
+  simulator-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      DB_HOST: ${SIMULATOR_DB_HOST:-host.docker.internal}
+      DB_PORT: ${SIMULATOR_DB_PORT:-5432}
+      DB_NAME: ${SIMULATOR_DB_NAME:-supply_chain}
+      DB_USER: ${SIMULATOR_DB_USER:-}
+      DB_PASSWORD: ${SIMULATOR_DB_PASSWORD:-}
+    ports:
+      - "${SIMULATOR_API_BIND_ADDRESS:-127.0.0.1}:${SIMULATOR_API_PORT:-8000}:8000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+
   postgres:
     image: postgres:16
     environment:
@@ -292,7 +341,7 @@ services:
       _AIRFLOW_DB_MIGRATE: 'true'
       _AIRFLOW_WWW_USER_CREATE: 'true'
       _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
-      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:?Set _AIRFLOW_WWW_USER_PASSWORD in .env}
       _PIP_ADDITIONAL_REQUIREMENTS: ''
     user: "0:0"
 

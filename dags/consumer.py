@@ -1,6 +1,7 @@
 from airflow.providers.standard.sensors.external_task import ExternalTaskSensor
 from confluent_kafka import Consumer,KafkaError
 from google.cloud import storage
+import os
 import json
 from datetime import datetime
 from time import time
@@ -9,19 +10,17 @@ from airflow.sdk import DAG
 from airflow.sdk.exceptions import AirflowFailException
 
 conf = {
-    "bootstrap.servers":"pkc-619z3.us-east1.gcp.confluent.cloud:9092",
-    "security.protocol":"SASL_SSL",
-    "sasl.mechanisms":"PLAIN",
-    "sasl.username":"XBLQVAYYNHY5KZX5",
-    "sasl.password":"cfltq7uzeYUHBwT/dOAWUqL8MT7VRDMqdrF5/64khMxeSqec2aDfWQY77Psy8NlA",
-    "client.id":"ccloud-python-client-998e3697-c32e-4805-9857-4381d6527253",
-    "group.id": "testing_group_000",
+    "bootstrap.servers": os.getenv("KAFKA_BOOTSTRAP_SERVERS", ""),
+    "security.protocol": os.getenv("KAFKA_SECURITY_PROTOCOL", "SASL_SSL"),
+    "sasl.mechanisms": os.getenv("KAFKA_SASL_MECHANISMS", "PLAIN"),
+    "sasl.username": os.getenv("KAFKA_SASL_USERNAME", ""),
+    "sasl.password": os.getenv("KAFKA_SASL_PASSWORD", ""),
+    "client.id": os.getenv("KAFKA_CLIENT_ID", "daemon-supply-chain-consumer"),
+    "group.id": os.getenv("KAFKA_GROUP_ID", "daemon-supply-chain-consumer"),
     'auto.offset.reset': 'earliest',
     'enable.auto.commit': False,
     'enable.partition.eof': True
 }
-
-consumer = Consumer(conf)
 
 topics = [
     'inventory-events',
@@ -33,18 +32,13 @@ topics = [
 ]
 
 
-consumer.subscribe(topics)
-
-client = storage.Client()
-bucket = client.bucket("daemon-supply-bronze")
-
 def bytes_to_string_encoder(obj):
     if isinstance(obj, bytes):
         return obj.decode('utf-8')
     raise TypeError(f'Object of type {obj.__class__.__name__} is not JSON serialize')
 
 
-def place_it_in_GCS(msg):
+def place_it_in_GCS(msg, bucket):
     if msg is None or msg == {}:
         return
 
@@ -80,7 +74,11 @@ def place_it_in_GCS(msg):
 
 
 def main_consumer():
+    consumer = Consumer(conf)
     try:
+        consumer.subscribe(topics)
+        bucket_name = os.getenv("GCS_BUCKET", "daemon-supply-bronze")
+        bucket = storage.Client().bucket(bucket_name)
         idle_timeout = 30
         last_message_time = time()
         while True:
@@ -118,7 +116,7 @@ def main_consumer():
                     'value': msg.value().decode()
                 }
 
-                upload_result = place_it_in_GCS(result)
+                upload_result = place_it_in_GCS(result, bucket)
 
                 print(upload_result)
 
@@ -134,7 +132,7 @@ def main_consumer():
 
 with DAG(
      dag_id="kafka_consumer",
-     start_date=datetime.datetime(2021, 1, 1),
+     start_date=datetime(2021, 1, 1),
      schedule=None,
      max_active_runs=1,
      catchup=False

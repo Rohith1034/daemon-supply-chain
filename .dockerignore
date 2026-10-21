@@ -1,0 +1,8 @@
+credentials/
+.env
+.git/
+.venv/
+logs/
+output/
+__pycache__/
+*.py[cod]

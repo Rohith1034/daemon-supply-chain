@@ -13,7 +13,7 @@ DB_CONFIG = {
     "port": int(os.getenv("DB_PORT", 55432)),
     "database": os.getenv("DB_NAME", "supply_chain"),
     "user": os.getenv("DB_USER", "supplychain_app"),
-    "password": os.getenv("DB_PASSWORD", "Cr7@1034"),
+    "password": os.getenv("DB_PASSWORD", ""),
 }
 
 

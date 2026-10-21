@@ -1,6 +1,7 @@
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.providers.standard.sensors.external_task import ExternalTaskSensor
 from confluent_kafka import Producer
+import os
 import psycopg2
 import json
 from datetime import datetime, timezone
@@ -54,28 +55,15 @@ shipment_events = [
 ]
 
 conf = {
-    "bootstrap.servers":"pkc-619z3.us-east1.gcp.confluent.cloud:9092",
-    "security.protocol":"SASL_SSL",
-    "sasl.mechanisms":"PLAIN",
-    "sasl.username":"XBLQVAYYNHY5KZX5",
-    "sasl.password":"cfltq7uzeYUHBwT/dOAWUqL8MT7VRDMqdrF5/64khMxeSqec2aDfWQY77Psy8NlA",
-    "client.id":"ccloud-python-client-998e3697-c32e-4805-9857-4381d6527253"
+    "bootstrap.servers": os.getenv("KAFKA_BOOTSTRAP_SERVERS", ""),
+    "security.protocol": os.getenv("KAFKA_SECURITY_PROTOCOL", "SASL_SSL"),
+    "sasl.mechanisms": os.getenv("KAFKA_SASL_MECHANISMS", "PLAIN"),
+    "sasl.username": os.getenv("KAFKA_SASL_USERNAME", ""),
+    "sasl.password": os.getenv("KAFKA_SASL_PASSWORD", ""),
+    "client.id": os.getenv("KAFKA_CLIENT_ID", "daemon-supply-chain-producer"),
 }
 
-producer = Producer(conf)
-
-conn = psycopg2.connect(**DB_CONFIG)
-
-cur = conn.cursor()
-
-cur.execute("""
-    SELECT * FROM event_outbox WHERE STATUS = 'PENDING' ORDER BY CREATED_AT;
-""")
-
-rows = cur.fetchall()
-
-
-def onMsgSuccess(err, msg, row):
+def onMsgSuccess(err, msg, row, conn, cur):
     if err is not None:
         print(f"Message delivery failed: {err}")
     else:
@@ -97,67 +85,67 @@ def onMsgSuccess(err, msg, row):
         )
 
 def main_producer():
-    for row in rows:
-        print(row)
-        event_type = row[2]
-        key = str(row[4]).encode('utf-8')
-        value = json.dumps(row[6]).encode('utf-8')
-        headers = [
-            ("event_id", str(row[1]).encode("utf-8")),
-            ("event_type", str(row[2]).encode("utf-8")),
-            ("correlation_id", str(row[5]).encode("utf-8")),
-            ("aggregate_type", str(row[3]).encode("utf-8")),
-        ]
+    conn = psycopg2.connect(**DB_CONFIG)
+    producer = Producer(conf)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT * FROM event_outbox
+                WHERE STATUS = 'PENDING'
+                ORDER BY CREATED_AT;
+            """)
+            rows = cur.fetchall()
 
-        if event_type in purchase_order_events:
-            producer.produce("purchase-order-events", key=key, value=value,
-                             callback=lambda err, msg, row=row: onMsgSuccess(err, msg, row), headers=headers)
+            for row in rows:
+                print(row)
+                event_type = row[2]
+                key = str(row[4]).encode("utf-8")
+                value = json.dumps(row[6]).encode("utf-8")
+                headers = [
+                    ("event_id", str(row[1]).encode("utf-8")),
+                    ("event_type", str(row[2]).encode("utf-8")),
+                    ("correlation_id", str(row[5]).encode("utf-8")),
+                    ("aggregate_type", str(row[3]).encode("utf-8")),
+                ]
 
-        elif event_type in supplier_shipment_events:
-            producer.produce("supplier-shipment-events", key=key, value=value,
-                             callback=lambda err, msg, row=row: onMsgSuccess(err, msg, row), headers=headers)
+                if event_type in purchase_order_events:
+                    topic = "purchase-order-events"
+                elif event_type in supplier_shipment_events:
+                    topic = "supplier-shipment-events"
+                elif event_type in inventory_events:
+                    topic = "inventory-events"
+                elif event_type in warehouse_task_events:
+                    topic = "warehouse-task-events"
+                elif event_type in order_events:
+                    topic = "order-events"
+                elif event_type in shipment_events:
+                    topic = "shipment-events"
+                else:
+                    print(f"No topic mapping found for event: {event_type}")
+                    continue
 
-        elif event_type in inventory_events:
-            producer.produce("inventory-events", key=key, value=value,
-                             callback=lambda err, msg, row=row: onMsgSuccess(err, msg, row), headers=headers)
+                producer.produce(
+                    topic,
+                    key=key,
+                    value=value,
+                    callback=lambda err, msg, row=row: onMsgSuccess(
+                        err, msg, row, conn, cur
+                    ),
+                    headers=headers,
+                )
+                producer.poll(0)
 
-        elif event_type in warehouse_task_events:
-            producer.produce("warehouse-task-events", key=key, value=value,
-                             callback=lambda err, msg, row=row: onMsgSuccess(err, msg, row), headers=headers)
-
-        elif event_type in order_events:
-            producer.produce("order-events", key=key, value=value,
-                             callback=lambda err, msg, row=row: onMsgSuccess(err, msg, row), headers=headers)
-
-        elif event_type in shipment_events:
-            producer.produce("shipment-events", key=key, value=value,
-                             callback=lambda err, msg, row=row: onMsgSuccess(err, msg, row), headers=headers)
-
-        else:
-            print(f"No topic mapping found for event: {event_type}")
-
-        producer.poll(0)
-
-    producer.flush()
+            producer.flush()
+    finally:
+        conn.close()
 
 with DAG(
      dag_id="kafka_producer",
-     start_date=datetime.datetime(2021, 1, 1),
-     schedule="*/10 */4 * * *",
+     start_date=datetime(2021, 1, 1),
+     # schedule="*/10 */4 * * *",
      max_active_runs=1,
      catchup=False
 ) as dag:
-    wait_for_inbound = ExternalTaskSensor(
-        task_id="wait_for_inbound",
-        external_dag_id="simulation_inbound",
-        external_task_id="inbound_simulation",
-    )
-
-    wait_for_outbound = ExternalTaskSensor(
-        task_id="wait_for_outbound",
-        external_dag_id="simulation_outbound",
-        external_task_id="outbound_simulation",
-    )
 
     main = PythonOperator(
         task_id="producer",
@@ -169,4 +157,4 @@ with DAG(
         trigger_dag_id="kafka_consumer",
     )
 
-    wait_for_inbound >> wait_for_outbound >> main
+    main >> trigger_consumer

@@ -1,15 +1,19 @@
-import datetime
 import os
 from uuid import NAMESPACE_URL, uuid5
 
 import psycopg2
+import pendulum
 import requests
 from airflow.providers.standard.operators.python import PythonOperator
+from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.sdk import DAG
 from airflow.sdk.exceptions import AirflowFailException
 
+API_URL = os.getenv("SIMULATOR_API_URL", "http://simulator-api:8000")
+
+
 def check_api_status():
-    response = requests.get("http://host.docker.internal:8000")
+    response = requests.get(API_URL)
     if response.status_code != 200:
         raise AirflowFailException("API is not up.❌❌❌")
 
@@ -17,9 +21,9 @@ def check_api_status():
 
 def check_postgres_status():
     required_settings = {
-        "dbname": "supply_chain",
-        "user": "supplychain_app",
-        "password": "Cr7@1034",
+        "dbname": os.getenv("DB_NAME", "supply_chain"),
+        "user": os.getenv("DB_USER", "supplychain_app"),
+        "password": os.getenv("DB_PASSWORD"),
     }
     missing_settings = [
         name for name, value in required_settings.items() if not value
@@ -31,8 +35,8 @@ def check_postgres_status():
 
     try:
         connection = psycopg2.connect(
-            host=os.getenv("PGHOST", "host.docker.internal"),
-            port=int(os.getenv("PGPORT", "55432")),
+            host=os.getenv("DB_HOST", "host.docker.internal"),
+            port=int(os.getenv("DB_PORT", "5432")),
             connect_timeout=5,
             **required_settings,
         )
@@ -50,7 +54,7 @@ def check_postgres_status():
     print("Postgres is up and running ✅✅✅")
 
 def outbound_simulation(**context):
-    base_url = "http://host.docker.internal:8000"
+    base_url = API_URL
     flow = "simulation/outbound"
     endpoint = f"{base_url}/{flow}"
     dag_run = context.get("dag_run")
@@ -92,8 +96,8 @@ def outbound_simulation(**context):
 
 with DAG(
      dag_id="simulation_outbound",
-     start_date=datetime.datetime(2021, 1, 1),
-     schedule="*/10 */4 * * *",
+     start_date=pendulum.datetime(2021, 1, 1, tz="Asia/Kolkata"),
+     schedule=None,
      max_active_runs=1,
      catchup=False
 ) as dag:
@@ -112,4 +116,9 @@ with DAG(
         python_callable=outbound_simulation
     )
 
-    t1 >> t2 >> t3
+    trigger_producer = TriggerDagRunOperator(
+        task_id="trigger_kafka_producer",
+        trigger_dag_id="kafka_producer",
+    )
+
+    t1 >> t2 >> t3 >> trigger_producer
