@@ -97,7 +97,7 @@ def outbound_simulation(**context):
 with DAG(
      dag_id="simulation_outbound",
      start_date=pendulum.datetime(2021, 1, 1, tz="Asia/Kolkata"),
-     schedule=None,
+     schedule="*/10 0,4,8,12,16,20 * * *",
      max_active_runs=1,
      catchup=False
 ) as dag:
