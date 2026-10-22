@@ -116,10 +116,4 @@ with DAG(
         python_callable=inbound_simulation
     )
 
-    trigger_outbound = TriggerDagRunOperator(
-        task_id="trigger_outbound",
-        trigger_dag_id="simulation_outbound",
-        wait_for_completion=True,
-    )
-
-    t1 >> t2 >> t3 >> trigger_outbound
+    t1 >> t2 >> t3
