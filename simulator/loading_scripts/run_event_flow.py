@@ -42,11 +42,11 @@ PYTHON = os.path.join(
 # =====================================================
 
 DB_CONFIG = {
-    "host": "localhost",
-    "port": 55432,
-    "database": "supply_chain",
-    "user": "supplychain_app",
-    "password": "Cr7@1034"
+    "host": os.getenv("DB_HOST", "localhost"),
+    "port": int(os.getenv("DB_PORT", "5432")),
+    "database": os.getenv("DB_NAME", "supply_chain"),
+    "user": os.getenv("DB_USER", "supplychain_app"),
+    "password": os.getenv("DB_PASSWORD", ""),
 }
 
 

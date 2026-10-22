@@ -52,7 +52,7 @@ Run each lifecycle independently from the repository root:
 
 Airflow mounts the `simulator` package so its DAGs can import it. For Google Cloud Storage access, the Compose setup mounts a service-account JSON key read-only from `credentials/daemon-supply-chain-dc9d68e4bf2c.json`; set `GOOGLE_APPLICATION_CREDENTIALS_HOST` in `.env` if the key is stored elsewhere. Keep the key out of version control and grant its service account only the required bucket access.
 
-For local Compose runs, configure the simulator database using `SIMULATOR_DB_HOST`, `SIMULATOR_DB_PORT`, `SIMULATOR_DB_NAME`, `SIMULATOR_DB_USER`, and `SIMULATOR_DB_PASSWORD` in `.env`. Inside Docker, `localhost` is the container itself; use `host.docker.internal` for a database on the Docker host, or the reachable private address for a remote database. The producer opens its database connection only when its task runs.
+For Compose runs, configure the simulator database using `SIMULATOR_DB_HOST`, `SIMULATOR_DB_PORT`, `SIMULATOR_DB_NAME`, `SIMULATOR_DB_USER`, and `SIMULATOR_DB_PASSWORD` in `.env`. The API and Airflow tasks read the same settings. Inside Docker, `localhost` is the container itself; use `host.docker.internal` for PostgreSQL installed on the Docker host, or the reachable private address for a remote database. An SSH tunnel on your workstation (such as `127.0.0.1:55432`) is only for workstation clients; containers on the VM must connect directly to the VM PostgreSQL listener (typically `host.docker.internal:5432`). The producer opens its database connection only when its task runs.
 
 ```powershell
 gcloud compute ssh daemon-vm --zone=asia-south1-c --ssh-flag="-N" --ssh-flag="-L 55432:127.0.0.1:5432"
@@ -100,7 +100,7 @@ The validation runner clears only the reviewed transactional-table allowlist bef
 
 ## Deploying on a GCE VM
 
-This deployment assumes the existing simulator PostgreSQL database is reachable from the VM. The Compose stack runs the simulator API, Airflow, Airflow's metadata PostgreSQL database, and Redis. Confluent Cloud and Google Cloud Storage remain external services; Spark and BigQuery integrations are not implemented in this repository.
+This deployment preserves the existing `supply_chain` data in PostgreSQL installed on the VM. The Compose stack runs the simulator API, Airflow, a separate PostgreSQL database for Airflow metadata, and Redis; the Compose `postgres` service is not the simulator database. PostgreSQL on the VM is managed by systemd and should be enabled at boot. Confluent Cloud and Google Cloud Storage remain external services; Spark and BigQuery integrations are not implemented in this repository.
 
 The inbound DAG runs at minutes `00, 10, 20, 30, 40, 50` during hours `00, 04, 08, 12, 16, 20` in `Asia/Kolkata`. Each successful inbound run triggers outbound, and outbound triggers the producer. `catchup=False` prevents Airflow from replaying missed intervals after VM downtime. Each inbound and outbound DAG run currently performs **30 API simulation calls**, so each hourly window can execute up to 180 calls per flow; confirm the workload finishes within the VM window.
 
@@ -113,20 +113,21 @@ The inbound DAG runs at minutes `00, 10, 20, 30, 40, 50` during hours `00, 04, 0
    sudo systemctl enable --now docker
    ```
 
-   Set `AIRFLOW_UID=50000`, generate `FERNET_KEY` with `python3 -c "import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"`, set a random `AIRFLOW__API_AUTH__JWT_SECRET` and `_AIRFLOW_WWW_USER_PASSWORD`, then fill in the `SIMULATOR_DB_*` and `KAFKA_*` values. The simulator DB host must be reachable from the VM (use `host.docker.internal` if PostgreSQL runs on the same VM); port `5432` is the default. Keep `.env` and credential files out of Git. Transfer the GCS service-account JSON to the VM securely at `credentials/daemon-supply-chain-dc9d68e4bf2c.json`, then run `sudo chown 50000:0 credentials/daemon-supply-chain-dc9d68e4bf2c.json && sudo chmod 600 credentials/daemon-supply-chain-dc9d68e4bf2c.json` so the Airflow container can read it; grant that identity access to the bucket. Set `GOOGLE_APPLICATION_CREDENTIALS_HOST` if using a different path.
-3. Ensure migrations `001_event_execution.sql` and `002_simulation_runs.sql` have been applied to the simulator database. From the repository root on the VM, build and start the services:
+   Set `AIRFLOW_UID=50000`, generate `FERNET_KEY` with `python3 -c "import base64,os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"`, set a random `AIRFLOW__API_AUTH__JWT_SECRET` and `_AIRFLOW_WWW_USER_PASSWORD`, then fill in `SIMULATOR_DB_*` and `KAFKA_*`. For the existing VM PostgreSQL, use `SIMULATOR_DB_HOST=host.docker.internal`, `SIMULATOR_DB_PORT=5432`, `SIMULATOR_DB_NAME=supply_chain`, and the existing role and password (for example, `supplychain_app`). Enable the host database at boot with `sudo systemctl enable --now postgresql`, configure it to listen on the Docker host gateway, and add a `pg_hba.conf` rule restricted to the Compose network subnet and the simulator database role. Do not expose PostgreSQL publicly. Keep `.env` and credential files out of Git. Transfer the GCS service-account JSON to the VM securely at `credentials/daemon-supply-chain-dc9d68e4bf2c.json`, then run `sudo chown 50000:0 credentials/daemon-supply-chain-dc9d68e4bf2c.json && sudo chmod 600 credentials/daemon-supply-chain-dc9d68e4bf2c.json` so the Airflow container can read it; grant that identity access to the bucket. Set `GOOGLE_APPLICATION_CREDENTIALS_HOST` if using a different path.
+3. Ensure migrations `001_event_execution.sql` and `002_simulation_runs.sql` have been applied to the existing simulator database. Apply them before deployment; `001_event_execution.sql` also performs data cleanup and should not be run automatically against existing data. Confirm `.env` contains the simulator DB username and password, Kafka credentials, and that the GCS service-account file exists. Compose fails early if the simulator DB username or password is missing. From the repository root on the VM, build and start the services with this single command:
 
    ```bash
    docker compose up -d --build
-   docker compose ps
-   docker compose logs --tail=100 airflow-init simulator-api airflow-scheduler airflow-dag-processor
-   docker compose exec airflow-scheduler airflow dags unpause simulation_inbound
-   docker compose exec airflow-scheduler airflow dags unpause simulation_outbound
-   docker compose exec airflow-scheduler airflow dags unpause kafka_producer
-   docker compose exec airflow-scheduler airflow dags unpause kafka_consumer
    ```
 
-   Airflow UI is on port `8080`; restrict firewall access to trusted IPs or use an SSH tunnel. The simulator API binds to `127.0.0.1:8000` by default and is available to Airflow over the internal Compose network.
+   To inspect startup, run:
+
+   ```bash
+   docker compose ps
+   docker compose logs --tail=100 airflow-init simulator-api airflow-scheduler airflow-dag-processor
+   ```
+
+Compose waits for the simulator API health check, which verifies it can authenticate to the existing simulator PostgreSQL database. The `airflow-dag-unpause` one-shot service then unpauses `simulation_inbound`, `simulation_outbound`, `kafka_producer`, and `kafka_consumer` after the scheduler and DAG processor are healthy. Check `docker compose ps` and `docker compose logs airflow-dag-unpause` if startup does not complete. DAGs run on their configured schedules; `docker compose up` does not trigger an immediate simulation. Successful Kafka/GCS tasks also require valid external Kafka credentials, a reachable broker, an existing bucket, and working GCS credentials. Airflow UI is on port `8080`; restrict firewall access to trusted IPs or use an SSH tunnel. The simulator API binds to `127.0.0.1:8000` by default and is available to Airflow over the internal Compose network.
 4. To keep the VM on for at most 70 scheduled minutes, start it at 00:00, 04:00, etc. and stop it at 01:10, 05:10, etc. in India time:
 
    ```bash
