@@ -20,6 +20,7 @@ from event_handlers.supplier_shipment_created import handle as handle_supplier_s
 from simulator.loading_scripts import run_event_flow
 from simulator.loading_scripts.run_event_flow import build_static_event_args
 from generators.inventory.stock_increased import _get_stock_increased_time
+from generators.inventory.inventory_putaway import _select_putaway_location
 
 
 def test_receiving_start_and_goods_received_share_saved_task_id():
@@ -52,6 +53,58 @@ def test_stock_increased_time_uses_current_time_after_receipt():
     simulation_now = datetime(2026, 10, 5, 18, 59, tzinfo=timezone.utc)
 
     assert _get_stock_increased_time(received_at, simulation_now) == simulation_now
+
+
+def test_putaway_relocates_existing_stock_when_assigned_location_is_full():
+    replacement = {
+        "location_id": "LOC-2",
+        "capacity_units": 200,
+        "current_utilization": 20,
+    }
+
+    class FakeDatabase:
+        def fetch_one(self, query, params):
+            assert "location_id <> %s" in query
+            assert params == ("WH-1", "LOC-1", "LOC-1", 80)
+            return replacement
+
+    current = {
+        "location_id": "LOC-1",
+        "capacity_units": 100,
+        "current_utilization": 90,
+    }
+
+    location, released, utilization_delta = _select_putaway_location(
+        FakeDatabase(),
+        "WH-1",
+        current,
+        received_quantity=30,
+        total_quantity=80,
+    )
+
+    assert location == replacement
+    assert released == 50
+    assert utilization_delta == 80
+
+
+def test_putaway_keeps_assigned_location_when_it_has_capacity():
+    current = {
+        "location_id": "LOC-1",
+        "capacity_units": 100,
+        "current_utilization": 50,
+    }
+
+    location, released, utilization_delta = _select_putaway_location(
+        None,
+        "WH-1",
+        current,
+        received_quantity=30,
+        total_quantity=80,
+    )
+
+    assert location == current
+    assert released == 0
+    assert utilization_delta == 30
 
 
 def test_packing_creation_uses_order_identity(monkeypatch):

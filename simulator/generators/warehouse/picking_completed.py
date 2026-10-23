@@ -362,6 +362,19 @@ WORKER:
             )
         )
 
+        if allocation["location_id"]:
+            db.execute(
+                """
+                UPDATE warehouse_locations
+                SET current_utilization = GREATEST(current_utilization - %s, 0)
+                WHERE location_id=%s
+                """,
+                (
+                    quantity,
+                    allocation["location_id"],
+                ),
+            )
+
 
 
         # ====================================================

@@ -41,7 +41,8 @@ def _ensure_utc(value):
 def _find_storage_location(
         db,
         warehouse_id,
-        quantity
+        quantity,
+        exclude_location_id=None,
 ):
 
     location = db.fetch_one(
@@ -67,6 +68,8 @@ def _find_storage_location(
 
         AND status='ACTIVE'
 
+        AND (%s IS NULL OR location_id <> %s)
+
 
         AND capacity_units IS NOT NULL
 
@@ -88,6 +91,8 @@ def _find_storage_location(
         """,
         (
             warehouse_id,
+            exclude_location_id,
+            exclude_location_id,
             quantity
         )
     )
@@ -112,6 +117,30 @@ REQUIRED QTY :
 
 
     return location
+
+
+def _select_putaway_location(
+        db,
+        warehouse_id,
+        current_location,
+        received_quantity,
+        total_quantity,
+):
+    remaining_capacity = (
+        current_location["capacity_units"]
+        - current_location["current_utilization"]
+    )
+    if remaining_capacity >= received_quantity:
+        return current_location, 0, received_quantity
+
+    replacement = _find_storage_location(
+        db,
+        warehouse_id,
+        total_quantity,
+        exclude_location_id=current_location["location_id"],
+    )
+    previously_stored = max(total_quantity - received_quantity, 0)
+    return replacement, previously_stored, total_quantity
 
 
 
@@ -238,6 +267,8 @@ INVENTORY ID :
 
 
         correlation_id = os.getenv("SIMULATION_CORRELATION_ID") or str(inventory["correlation_id"])
+        utilization_delta = quantity
+        released_quantity = 0
 
         if inventory["location_id"]:
             location = db.fetch_one(
@@ -264,17 +295,26 @@ INVENTORY ID :
             else:
                 quantity = inventory["available_quantity"]
 
-            remaining_capacity = location["capacity_units"] - location["current_utilization"]
-            if remaining_capacity < quantity:
-                raise Exception(
-                    f"Assigned location {location['location_id']} has {remaining_capacity} units of capacity; "
-                    f"{quantity} additional units are required"
+            location, released_quantity, utilization_delta = _select_putaway_location(
+                db,
+                warehouse_id,
+                location,
+                quantity,
+                inventory["available_quantity"],
+            )
+            if released_quantity:
+                db.execute(
+                    """UPDATE warehouse_locations
+                       SET current_utilization = GREATEST(current_utilization - %s, 0)
+                       WHERE location_id=%s""",
+                    (released_quantity, inventory["location_id"]),
                 )
             location_id = location["location_id"]
         else:
             quantity = inventory["available_quantity"]
             location = _find_storage_location(db, warehouse_id, quantity)
             location_id = location["location_id"]
+            utilization_delta = quantity
 
 
         print(
@@ -414,7 +454,7 @@ CURRENT :
             """,
             (
 
-                quantity,
+                utilization_delta,
 
                 location_id
 
