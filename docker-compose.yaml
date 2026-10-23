@@ -180,6 +180,85 @@ services:
       start_period: 30s
     restart: always
 
+  spark-master:
+    image: apache/spark:4.0.1
+    entrypoint: ["/opt/spark/bin/spark-class"]
+    command:
+      - org.apache.spark.deploy.master.Master
+      - --host
+      - spark-master
+      - --port
+      - "7077"
+      - --webui-port
+      - "8080"
+    ports:
+      - "${SPARK_MASTER_UI_BIND_ADDRESS:-127.0.0.1}:${SPARK_MASTER_UI_PORT:-18080}:8080"
+      - "${SPARK_MASTER_BIND_ADDRESS:-127.0.0.1}:${SPARK_MASTER_PORT:-17077}:7077"
+    restart: unless-stopped
+
+  spark-worker-1:
+    image: apache/spark:4.0.1
+    entrypoint: ["/opt/spark/bin/spark-class"]
+    command:
+      - org.apache.spark.deploy.worker.Worker
+      - --host
+      - spark-worker-1
+      - --webui-port
+      - "8081"
+      - --cores
+      - "${SPARK_WORKER_CORES:-1}"
+      - --memory
+      - "${SPARK_WORKER_MEMORY:-1G}"
+      - spark://spark-master:7077
+    ports:
+      - "${SPARK_WORKER_UI_BIND_ADDRESS:-127.0.0.1}:${SPARK_WORKER_1_UI_PORT:-18081}:8081"
+    depends_on:
+      spark-master:
+        condition: service_started
+    restart: unless-stopped
+
+  spark-worker-2:
+    image: apache/spark:4.0.1
+    entrypoint: ["/opt/spark/bin/spark-class"]
+    command:
+      - org.apache.spark.deploy.worker.Worker
+      - --host
+      - spark-worker-2
+      - --webui-port
+      - "8081"
+      - --cores
+      - "${SPARK_WORKER_CORES:-1}"
+      - --memory
+      - "${SPARK_WORKER_MEMORY:-1G}"
+      - spark://spark-master:7077
+    ports:
+      - "${SPARK_WORKER_UI_BIND_ADDRESS:-127.0.0.1}:${SPARK_WORKER_2_UI_PORT:-18082}:8081"
+    depends_on:
+      spark-master:
+        condition: service_started
+    restart: unless-stopped
+
+  spark-worker-3:
+    image: apache/spark:4.0.1
+    entrypoint: ["/opt/spark/bin/spark-class"]
+    command:
+      - org.apache.spark.deploy.worker.Worker
+      - --host
+      - spark-worker-3
+      - --webui-port
+      - "8081"
+      - --cores
+      - "${SPARK_WORKER_CORES:-1}"
+      - --memory
+      - "${SPARK_WORKER_MEMORY:-1G}"
+      - spark://spark-master:7077
+    ports:
+      - "${SPARK_WORKER_UI_BIND_ADDRESS:-127.0.0.1}:${SPARK_WORKER_3_UI_PORT:-18083}:8081"
+    depends_on:
+      spark-master:
+        condition: service_started
+    restart: unless-stopped
+
   airflow-apiserver:
     <<: *airflow-common
     command: api-server

@@ -100,7 +100,7 @@ The validation runner clears only the reviewed transactional-table allowlist bef
 
 ## Deploying on a GCE VM
 
-This deployment preserves the existing `supply_chain` data in PostgreSQL installed on the VM. The Compose stack runs the simulator API, Airflow, a separate PostgreSQL database for Airflow metadata, and Redis; the Compose `postgres` service is not the simulator database. PostgreSQL on the VM is managed by systemd and should be enabled at boot. Confluent Cloud and Google Cloud Storage remain external services; Spark and BigQuery integrations are not implemented in this repository.
+This deployment preserves the existing `supply_chain` data in PostgreSQL installed on the VM. The Compose stack runs the simulator API, Airflow, a separate PostgreSQL database for Airflow metadata, Redis, and an Apache Spark standalone cluster with one master and three workers; the Compose `postgres` service is not the simulator database. PostgreSQL on the VM is managed by systemd and should be enabled at boot. Confluent Cloud and Google Cloud Storage remain external services; Spark is available as a cluster but is not wired into the existing DAGs or data pipeline.
 
 The inbound DAG runs at minutes `00, 10, 20, 30, 40, 50` during hours `00, 04, 08, 12, 16, 20` in `Asia/Kolkata`. Each successful inbound run triggers outbound, and outbound triggers the producer. `catchup=False` prevents Airflow from replaying missed intervals after VM downtime. Each inbound and outbound DAG run currently performs **30 API simulation calls**, so each hourly window can execute up to 180 calls per flow; confirm the workload finishes within the VM window.
 
@@ -128,6 +128,8 @@ The inbound DAG runs at minutes `00, 10, 20, 30, 40, 50` during hours `00, 04, 0
    ```
 
 Compose waits for the simulator API health check, which verifies it can authenticate to the existing simulator PostgreSQL database. The `airflow-dag-unpause` one-shot service then unpauses `simulation_inbound`, `simulation_outbound`, `kafka_producer`, and `kafka_consumer` after the scheduler and DAG processor are healthy. Check `docker compose ps` and `docker compose logs airflow-dag-unpause` if startup does not complete. DAGs run on their configured schedules; `docker compose up` does not trigger an immediate simulation. Successful Kafka/GCS tasks also require valid external Kafka credentials, a reachable broker, an existing bucket, and working GCS credentials. Airflow UI is on port `8080`; restrict firewall access to trusted IPs or use an SSH tunnel. The simulator API binds to `127.0.0.1:8000` by default and is available to Airflow over the internal Compose network.
+
+The Spark master UI is available locally on the VM at `http://127.0.0.1:18080`; worker UIs use ports `18081`-`18083`. Access the master UI from your workstation through an SSH tunnel, for example `gcloud compute ssh daemon-vm --zone=asia-south1-c --ssh-flag="-N" --ssh-flag="-L 18080:127.0.0.1:18080"`. Spark workers each default to 1 core and 1 GiB of worker memory; adjust `SPARK_WORKER_CORES` and `SPARK_WORKER_MEMORY` in `.env` to fit the VM. Spark master RPC is reachable to host clients only through `127.0.0.1:17077`; containers on the Compose network should use `spark://spark-master:7077`. The Spark UIs and RPC port are bound to loopback by default and should not be exposed publicly.
 4. To keep the VM on for at most 70 scheduled minutes, start it at 00:00, 04:00, etc. and stop it at 01:10, 05:10, etc. in India time:
 
    ```bash
