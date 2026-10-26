@@ -95,6 +95,7 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
     - ${AIRFLOW_PROJ_DIR:-.}/simulator:/opt/airflow/simulator:ro
+    - ${AIRFLOW_PROJ_DIR:-.}/pyspark_schemas:/opt/airflow/pyspark_schemas:ro
   user: "${AIRFLOW_UID:-50000}:0"
   extra_hosts:
     - "host.docker.internal:host-gateway"
