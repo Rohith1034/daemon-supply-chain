@@ -144,6 +144,42 @@ The inbound DAG runs at minutes `00, 10, 20, 30, 40, 50` during hours `00, 04, 0
 Compose waits for the simulator API health check, which verifies it can authenticate to the existing simulator PostgreSQL database. The `airflow-dag-unpause` one-shot service then unpauses `simulation_inbound`, `simulation_outbound`, `kafka_producer`, and `kafka_consumer` after the scheduler and DAG processor are healthy. Check `docker compose ps` and `docker compose logs airflow-dag-unpause` if startup does not complete. DAGs run on their configured schedules; `docker compose up` does not trigger an immediate simulation. Successful Kafka/GCS tasks also require valid external Kafka credentials, a reachable broker, an existing bucket, and working GCS credentials. Airflow UI is on port `8080`; restrict firewall access to trusted IPs or use an SSH tunnel. The simulator API binds to `127.0.0.1:8000` by default and is available to Airflow over the internal Compose network.
 
 The Spark master UI is available locally on the VM at `http://127.0.0.1:18080`; worker UIs use ports `18081`-`18083`. Access the master UI from your workstation through an SSH tunnel, for example `gcloud compute ssh daemon-vm --zone=asia-south1-c --ssh-flag="-N" --ssh-flag="-L 18080:127.0.0.1:18080"`. Spark workers each default to 1 core and 1 GiB of worker memory; adjust `SPARK_WORKER_CORES` and `SPARK_WORKER_MEMORY` in `.env` to fit the VM. Spark master RPC is reachable to host clients only through `127.0.0.1:17077`; containers on the Compose network should use `spark://spark-master:7077`. The Spark UIs and RPC port are bound to loopback by default and should not be exposed publicly.
+
+### Access VM services from your workstation
+
+Use an SSH tunnel to access the Airflow UI, simulator API, Spark UIs, and VM PostgreSQL without opening those services to the internet. Run this from your workstation and leave the terminal open while using the services. Change the instance name or zone if yours differs:
+
+```bash
+gcloud compute ssh daemon-vm \
+  --zone=asia-south1-c \
+  --ssh-flag="-N" \
+  --ssh-flag="-L 127.0.0.1:8080:127.0.0.1:8080" \
+  --ssh-flag="-L 127.0.0.1:8000:127.0.0.1:8000" \
+  --ssh-flag="-L 127.0.0.1:18080:127.0.0.1:18080" \
+  --ssh-flag="-L 127.0.0.1:18081:127.0.0.1:18081" \
+  --ssh-flag="-L 127.0.0.1:18082:127.0.0.1:18082" \
+  --ssh-flag="-L 127.0.0.1:18083:127.0.0.1:18083" \
+  --ssh-flag="-L 127.0.0.1:55432:127.0.0.1:5432"
+```
+
+Once connected, use these local addresses:
+
+| Service | Workstation address | Notes |
+| --- | --- | --- |
+| Airflow | `http://127.0.0.1:8080` | Sign in with `_AIRFLOW_WWW_USER_USERNAME` and `_AIRFLOW_WWW_USER_PASSWORD` from the VM's private `.env`. |
+| Simulator API | `http://127.0.0.1:8000` | Swagger UI: `http://127.0.0.1:8000/docs`; health endpoint: `http://127.0.0.1:8000/health`. |
+| Spark master UI | `http://127.0.0.1:18080` | Spark worker UIs: ports `18081`, `18082`, and `18083`. |
+| Simulator PostgreSQL | `127.0.0.1:55432` | Database `supply_chain`; this is the PostgreSQL service installed on the VM, not the Compose `postgres` Airflow metadata database. |
+
+For example, connect to the simulator database from a workstation with `psql`:
+
+```bash
+psql -h 127.0.0.1 -p 55432 -U supplychain_app -d supply_chain
+```
+
+Use the database role and password configured on the VM; do not put passwords in this command or commit them to the repository. A local database client or IDE should use host `127.0.0.1`, port `55432`, database `supply_chain`, and the same role credentials.
+
+The tunnel requires SSH access to the VM and the corresponding services to be running. PostgreSQL must accept connections on the VM loopback interface for the `127.0.0.1:5432` tunnel target; keep its firewall and `pg_hba.conf` rules restricted. Compose currently publishes the Airflow UI port on the VM, so restrict VM firewall ingress to trusted IPs even when using the tunnel. Do not change the Compose database host to `127.0.0.1` for services running inside containers: their `localhost` is the container itself. Those services must connect to the VM database through the configured host gateway address.
 4. To keep the VM on for at most 70 scheduled minutes, start it at 00:00, 04:00, etc. and stop it at 01:10, 05:10, etc. in India time:
 
    ```bash

@@ -78,7 +78,6 @@ def flatten_structs(df):
             for child in nested.dataType.fields
         ]
         df = df.select("*", *child_columns).drop(nested.name)
-        flat_df = flatten_structs(df)
 
 
 
