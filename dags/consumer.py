@@ -1,6 +1,7 @@
 from airflow.providers.standard.sensors.external_task import ExternalTaskSensor
 from confluent_kafka import Consumer,KafkaError
 from google.cloud import storage
+from pyspark.sql import SparkSession
 import os
 import json
 from datetime import datetime
@@ -8,6 +9,18 @@ from time import time
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.sdk import DAG
 from airflow.sdk.exceptions import AirflowFailException
+from pyspark_schemas.main import get_spark_schema
+from pyspark.sql.types import (
+    ArrayType,
+    BooleanType,
+    DoubleType,
+    IntegerType,
+    StringType,
+    StructField,
+    StructType,
+    TimestampType,
+)
+from pyspark.sql.functions import col
 
 conf = {
     "bootstrap.servers": os.getenv("KAFKA_BOOTSTRAP_SERVERS", ""),
@@ -31,11 +44,75 @@ topics = [
     'warehouse-task-events'
 ]
 
+spark = (
+        SparkSession.builder
+        .appName("daemon-supply-chain")
+        .master("spark://spark-master:7077")
+        .config("spark.executor.cores", "1")
+        .config("spark.executor.memory", "1g")
+        .config("spark.cores.max", "3")
+        .config("spark.sql.shuffle.partitions", "6")
+        .config("spark.sql.session.timeZone", "UTC")
+        .getOrCreate()
+    )
 
 def bytes_to_string_encoder(obj):
     if isinstance(obj, bytes):
         return obj.decode('utf-8')
     raise TypeError(f'Object of type {obj.__class__.__name__} is not JSON serialize')
+
+def flatten_structs(df):
+    while True:
+        nested = next(
+            (field for field in df.schema.fields
+             if isinstance(field.dataType, StructType)),
+            None,
+        )
+        if nested is None:
+            return df
+
+        child_columns = [
+            col(f"`{nested.name}`.`{child.name}`").alias(
+                f"{nested.name}_{child.name}"
+            )
+            for child in nested.dataType.fields
+        ]
+        df = df.select("*", *child_columns).drop(nested.name)
+        flat_df = flatten_structs(df)
+
+
+
+
+def place_it_in_GCS_parse(msg,bucket):
+    if msg is None or msg == {}:
+        return
+
+    data = msg["value"]
+    year_long = datetime.today().strftime("%Y")
+    current_month = datetime.now().month
+    current_day = datetime.now().day
+    json_value = json.loads(data)
+    event_name = json_value.get("eventType") or json_value.get("event_type")
+    if not event_name:
+        raise AirflowFailException("event type not found in message value")
+
+    event_schema = get_spark_schema(event_name=event_name)
+    if isinstance(event_schema, str):
+        raise AirflowFailException(event_schema)
+
+    df = spark.createDataFrame([json_value], schema=event_schema)
+    flat_df = flatten_structs(df)
+
+    gcs_path = (
+        f"gs://{bucket.name}/parsed/{msg['topic']}/{event_name}/"
+        f"{year_long}/{current_month}/{current_day}/"
+        f"partition={msg['partition']}/offset={msg['offset']}"
+    )
+
+    flat_df.write.mode("errorifexists").parquet(gcs_path)
+    return f"Saved Parquet data to {gcs_path}"
+
+
 
 
 def place_it_in_GCS(msg, bucket):
@@ -47,7 +124,7 @@ def place_it_in_GCS(msg, bucket):
     current_month = datetime.now().month
     current_day = datetime.now().day
     json_value = json.loads(data)
-    print(json_value)
+    # print(json_value)
     if 'event_type' not in json_value and json_value['eventType'] is not None and json_value['eventType'] != '':
         json_value['event_type'] = json_value['eventType']
     if 'event_type' not in json_value:
@@ -117,8 +194,10 @@ def main_consumer():
                 }
 
                 upload_result = place_it_in_GCS(result, bucket)
-
                 print(upload_result)
+
+                upload_result_of_parsed = place_it_in_GCS_parse(msg,bucket)
+                print(upload_result_of_parsed)
 
                 if upload_result:
                     consumer.commit(message=msg)

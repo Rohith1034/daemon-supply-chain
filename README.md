@@ -42,6 +42,20 @@ ML Models
 - Transportation
 - Delivery
 
+## Local Python Setup
+
+Use Python 3.13 for local development. The pinned `psycopg2-binary==2.9.12` dependency does not provide a wheel for Python 3.15, so pip falls back to compiling it from source and fails on macOS without PostgreSQL's `pg_config`. The 3.13.17 file also selects 3.13 for pyenv users.
+
+On macOS, install and use Python 3.13 to create the project environment:
+
+```bash
+brew install python@3.13
+python3.13 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
 ## Independent Simulator Runs
 
 Apply `migrations/002_simulation_runs.sql` to PostgreSQL before starting the API. Each independent endpoint can then be called without a request body; PostgreSQL supplies the simulation ID, correlation ID, and default timestamp, and stores run status and results in `simulation_runs` instead of creating files under `output/simulation_runs`.
