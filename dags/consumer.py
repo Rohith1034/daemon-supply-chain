@@ -268,6 +268,22 @@ def main_consumer():
                         .config("spark.cores.max", "3")
                         .config("spark.sql.shuffle.partitions", "6")
                         .config("spark.sql.session.timeZone", "UTC")
+                        .config(
+                            "spark.jars.packages",
+                            "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.26",
+                        )
+                        .config(
+                            "spark.hadoop.fs.gs.impl",
+                            "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
+                        )
+                        .config(
+                            "spark.hadoop.fs.AbstractFileSystem.gs.impl",
+                            "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS",
+                        )
+                        .config(
+                            "spark.hadoop.google.cloud.auth.type",
+                            "APPLICATION_DEFAULT",
+                        )
                         .getOrCreate()
                     )
 
