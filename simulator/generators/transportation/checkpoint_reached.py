@@ -313,6 +313,9 @@ def generate_checkpoint():
 
         payload = {
 
+            "event_type":
+                EVENT_NAME,
+
             "checkpoint_id":
                 checkpoint_id,
 

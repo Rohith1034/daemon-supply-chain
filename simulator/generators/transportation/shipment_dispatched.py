@@ -239,6 +239,8 @@ def dispatch_shipment():
 
         payload = {
 
+            "event_type":
+                EVENT_NAME,
 
             "shipment_id":
 

@@ -3,7 +3,7 @@ from confluent_kafka import Consumer,KafkaError
 from google.cloud import storage
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from time import time
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.sdk import DAG
@@ -58,6 +58,85 @@ def flatten_structs(df):
         df = df.select("*", *child_columns).drop(nested.name)
 
 
+def normalize_event_value(value, data_type, path="event"):
+    from pyspark.sql.types import (
+        ArrayType,
+        BooleanType,
+        DoubleType,
+        IntegerType,
+        StringType,
+        StructType,
+        TimestampType,
+    )
+
+    if value is None:
+        return None
+
+    if isinstance(data_type, TimestampType):
+        if isinstance(value, datetime):
+            timestamp = value
+        elif isinstance(value, str):
+            try:
+                timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError as exc:
+                raise ValueError(f"Invalid timestamp at {path}: {value!r}") from exc
+        else:
+            raise TypeError(
+                f"Expected timestamp string at {path}, got {type(value).__name__}"
+            )
+        return timestamp.replace(tzinfo=timezone.utc) if timestamp.tzinfo is None else timestamp
+
+    if isinstance(data_type, StructType):
+        if not isinstance(value, dict):
+            raise TypeError(f"Expected object at {path}, got {type(value).__name__}")
+        fields_by_name = {field.name: field for field in data_type.fields}
+        unexpected = value.keys() - fields_by_name.keys()
+        if unexpected:
+            raise ValueError(f"Unexpected fields at {path}: {sorted(unexpected)}")
+
+        normalized = {}
+        for field in data_type.fields:
+            field_path = f"{path}.{field.name}"
+            if field.name not in value:
+                if not field.nullable:
+                    raise ValueError(f"Missing required field {field_path}")
+                field_value = None
+            else:
+                field_value = value[field.name]
+            if field_value is None and not field.nullable:
+                raise ValueError(f"Required field {field_path} cannot be null")
+            normalized[field.name] = normalize_event_value(
+                field_value,
+                field.dataType,
+                field_path,
+            )
+        return normalized
+
+    if isinstance(data_type, ArrayType):
+        if not isinstance(value, list):
+            raise TypeError(f"Expected array at {path}, got {type(value).__name__}")
+        normalized = []
+        for index, item in enumerate(value):
+            item_path = f"{path}[{index}]"
+            if item is None and not data_type.containsNull:
+                raise ValueError(f"Null array element at {item_path}")
+            normalized.append(
+                normalize_event_value(item, data_type.elementType, item_path)
+            )
+        return normalized
+
+    if isinstance(data_type, StringType) and not isinstance(value, str):
+        raise TypeError(f"Expected string at {path}, got {type(value).__name__}")
+    if isinstance(data_type, IntegerType) and type(value) is not int:
+        raise TypeError(f"Expected integer at {path}, got {type(value).__name__}")
+    if isinstance(data_type, DoubleType):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise TypeError(f"Expected number at {path}, got {type(value).__name__}")
+        return float(value)
+    if isinstance(data_type, BooleanType) and type(value) is not bool:
+        raise TypeError(f"Expected boolean at {path}, got {type(value).__name__}")
+
+    return value
 
 
 def place_it_in_GCS_parse(msg, bucket, spark):
@@ -79,7 +158,8 @@ def place_it_in_GCS_parse(msg, bucket, spark):
     if isinstance(event_schema, str):
         raise AirflowFailException(event_schema)
 
-    df = spark.createDataFrame([json_value], schema=event_schema)
+    converted_value = normalize_event_value(json_value, event_schema)
+    df = spark.createDataFrame([converted_value], schema=event_schema)
     flat_df = flatten_structs(df)
 
     gcs_path = (

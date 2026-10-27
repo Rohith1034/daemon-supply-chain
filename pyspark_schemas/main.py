@@ -478,6 +478,7 @@ order_item_created = StructType([
 ])
 
 shipment_loaded = StructType([
+    _field("event_type", StringType()),
     _field("shipment_id", StringType()),
     _field("vehicle_id", StringType()),
     _field("trailer_id", StringType(), nullable=True),
@@ -487,6 +488,7 @@ shipment_loaded = StructType([
 ])
 
 shipment_dispatched = StructType([
+    _field("event_type", StringType()),
     _field("shipment_id", StringType()),
     _field("vehicle_id", StringType()),
     _field("driver_id", StringType()),
@@ -635,6 +637,7 @@ shipment_ready = StructType([
 ])
 
 checkpoint_reached = StructType([
+    _field("event_type", StringType()),
     _field("checkpoint_id", StringType()),
     _field("shipment_id", StringType()),
     _field("tracking_id", StringType()),
