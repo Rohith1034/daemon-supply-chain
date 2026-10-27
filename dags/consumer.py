@@ -19,7 +19,8 @@ conf = {
     "group.id": os.getenv("KAFKA_GROUP_ID", "daemon-supply-chain-consumer"),
     'auto.offset.reset': 'earliest',
     'enable.auto.commit': False,
-    'enable.partition.eof': True
+    'enable.partition.eof': True,
+    'max.poll.interval.ms': 900000,
 }
 
 topics = [
