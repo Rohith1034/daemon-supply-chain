@@ -90,9 +90,16 @@ def main_producer():
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT * FROM event_outbox
-                WHERE STATUS = 'PENDING'
-                ORDER BY CREATED_AT;
+                SELECT outbox.*
+                FROM event_outbox AS outbox
+                WHERE outbox.status = 'PENDING'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM simulation_runs AS run
+                      WHERE run.correlation_id::text = outbox.correlation_id
+                        AND run.status <> 'SUCCESS'
+                  )
+                ORDER BY outbox.created_at;
             """)
             rows = cur.fetchall()
 

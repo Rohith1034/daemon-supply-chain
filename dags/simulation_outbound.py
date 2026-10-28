@@ -4,12 +4,14 @@ from uuid import NAMESPACE_URL, uuid5
 import psycopg2
 import pendulum
 import requests
+from core.db import Database
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.sdk import DAG
 from airflow.sdk.exceptions import AirflowFailException
 
 API_URL = os.getenv("SIMULATOR_API_URL", "http://simulator-api:8000")
+OUTBOUND_SIMULATION_COUNT = 60
 
 
 def check_api_status():
@@ -18,6 +20,7 @@ def check_api_status():
         raise AirflowFailException("API is not up.❌❌❌")
 
     print("API is up and running.✅✅✅")
+
 
 def check_postgres_status():
     required_settings = {
@@ -53,6 +56,7 @@ def check_postgres_status():
 
     print("Postgres is up and running ✅✅✅")
 
+
 def outbound_simulation(**context):
     base_url = API_URL
     flow = "simulation/outbound"
@@ -61,12 +65,15 @@ def outbound_simulation(**context):
     if dag_run is None:
         raise AirflowFailException("Missing Airflow DAG run context")
 
-    for call_number in range(1, 31):
+    for call_number in range(1, OUTBOUND_SIMULATION_COUNT + 1):
         correlation_id = uuid5(
             NAMESPACE_URL,
             f"{dag_run.dag_id}:{dag_run.run_id}:outbound:{call_number}",
         )
-        print(f"Starting outbound simulation {call_number}/30: {endpoint}")
+        print(
+            f"Starting outbound simulation "
+            f"{call_number}/{OUTBOUND_SIMULATION_COUNT}: {endpoint}"
+        )
         try:
             response = requests.post(
                 endpoint,
@@ -77,21 +84,72 @@ def outbound_simulation(**context):
             result = response.json()
         except (requests.RequestException, ValueError) as exc:
             raise AirflowFailException(
-                f"outbound simulation {call_number}/30 request failed: {exc}"
+                f"Outbound simulation {call_number}/{OUTBOUND_SIMULATION_COUNT} "
+                f"request failed: {exc}"
             ) from exc
 
         if result.get("status") != "SUCCESS":
-            raise AirflowFailException(
-                f"outbound simulation {call_number}/30 failed "
+            print(
+                f"Outbound simulation "
+                f"{call_number}/{OUTBOUND_SIMULATION_COUNT} failed "
                 f"(simulation_id={result.get('simulation_id')}): "
                 f"{result.get('message', 'API returned a non-success status')}"
             )
+            continue
 
         print(
-            f"outbound simulation {call_number}/30 succeeded "
+            f"Outbound simulation "
+            f"{call_number}/{OUTBOUND_SIMULATION_COUNT} succeeded "
             f"(simulation_id={result.get('simulation_id')}, "
             f"correlation_id={result.get('correlation_id')})"
         )
+
+
+def removing_invalid_outbound_cycles(**context):
+    dag_run = context.get("dag_run")
+    if dag_run is None:
+        raise AirflowFailException("Missing Airflow DAG run context")
+
+    correlation_ids = [
+        str(uuid5(
+            NAMESPACE_URL,
+            f"{dag_run.dag_id}:{dag_run.run_id}:outbound:{call_number}",
+        ))
+        for call_number in range(1, OUTBOUND_SIMULATION_COUNT + 1)
+    ]
+
+    with Database() as db:
+        failed_runs = db.fetch_all(
+            """
+            SELECT correlation_id
+            FROM simulation_runs
+            WHERE flow = 'outbound'
+              AND status = 'FAILED'
+              AND correlation_id = ANY(%s)
+            """,
+            (correlation_ids,),
+        )
+        failed_correlation_ids = [
+            str(row["correlation_id"]) for row in failed_runs
+        ]
+        if not failed_correlation_ids:
+            print("No failed outbound simulations to clean up.")
+            return
+
+        deleted_events = db.fetch_all(
+            """
+            DELETE FROM event_outbox
+            WHERE correlation_id = ANY(%s)
+              AND status IN ('PENDING', 'RETRY_SCHEDULED')
+            RETURNING event_id
+            """,
+            (failed_correlation_ids,),
+        )
+
+    print(
+        f"Removed {len(deleted_events)} unpublished outbox events "
+        f"for {len(failed_correlation_ids)} failed outbound simulations."
+    )
 
 
 with DAG(
@@ -116,9 +174,15 @@ with DAG(
         python_callable=outbound_simulation
     )
 
+    t4 = PythonOperator(
+        task_id="clean_invalid_records",
+        python_callable=removing_invalid_outbound_cycles,
+        trigger_rule="all_done",
+    )
+
     trigger_producer = TriggerDagRunOperator(
         task_id="trigger_kafka_producer",
         trigger_dag_id="kafka_producer",
     )
 
-    t1 >> t2 >> t3 >> trigger_producer
+    t1 >> t2 >> t3 >> t4 >> trigger_producer

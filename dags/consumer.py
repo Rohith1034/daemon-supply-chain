@@ -169,7 +169,7 @@ def place_it_in_GCS_parse(msg, bucket, spark):
         f"partition={msg['partition']}/offset={msg['offset']}"
     )
 
-    flat_df.write.mode("errorifexists").parquet(gcs_path)
+    flat_df.write.mode("overwrite").parquet(gcs_path)
     return f"Saved Parquet data to {gcs_path}"
 
 

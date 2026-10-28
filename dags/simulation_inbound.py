@@ -4,12 +4,13 @@ from uuid import NAMESPACE_URL, uuid5
 import psycopg2
 import pendulum
 import requests
+from core.db import Database
 from airflow.providers.standard.operators.python import PythonOperator
-from airflow.providers.standard.operators.trigger_dagrun import TriggerDagRunOperator
 from airflow.sdk import DAG
 from airflow.sdk.exceptions import AirflowFailException
 
 API_URL = os.getenv("SIMULATOR_API_URL", "http://simulator-api:8000")
+INBOUND_SIMULATION_COUNT = 60
 
 
 def check_api_status():
@@ -18,6 +19,7 @@ def check_api_status():
         raise AirflowFailException("API is not up.❌❌❌")
 
     print("API is up and running.✅✅✅")
+
 
 def check_postgres_status():
     required_settings = {
@@ -53,6 +55,7 @@ def check_postgres_status():
 
     print("Postgres is up and running ✅✅✅")
 
+
 def inbound_simulation(**context):
     base_url = API_URL
     flow = "simulation/inbound"
@@ -61,12 +64,12 @@ def inbound_simulation(**context):
     if dag_run is None:
         raise AirflowFailException("Missing Airflow DAG run context")
 
-    for call_number in range(1, 31):
+    for call_number in range(1, INBOUND_SIMULATION_COUNT + 1):
         correlation_id = uuid5(
             NAMESPACE_URL,
             f"{dag_run.dag_id}:{dag_run.run_id}:inbound:{call_number}",
         )
-        print(f"Starting inbound simulation {call_number}/30: {endpoint}")
+        print(f"Starting inbound simulation {call_number}/60: {endpoint}")
         try:
             response = requests.post(
                 endpoint,
@@ -81,25 +84,73 @@ def inbound_simulation(**context):
             ) from exc
 
         if result.get("status") != "SUCCESS":
-            raise AirflowFailException(
-                f"Inbound simulation {call_number}/30 failed "
+            print(
+                f"Inbound simulation {call_number}/{INBOUND_SIMULATION_COUNT} failed "
                 f"(simulation_id={result.get('simulation_id')}): "
                 f"{result.get('message', 'API returned a non-success status')}"
             )
+            continue
 
         print(
-            f"Inbound simulation {call_number}/30 succeeded "
+            f"Inbound simulation {call_number}/{INBOUND_SIMULATION_COUNT} succeeded "
             f"(simulation_id={result.get('simulation_id')}, "
             f"correlation_id={result.get('correlation_id')})"
         )
 
 
+def removing_invalid_inbound_cycles(**context):
+    dag_run = context.get("dag_run")
+    if dag_run is None:
+        raise AirflowFailException("Missing Airflow DAG run context")
+
+    correlation_ids = [
+        str(uuid5(
+            NAMESPACE_URL,
+            f"{dag_run.dag_id}:{dag_run.run_id}:inbound:{call_number}",
+        ))
+        for call_number in range(1, INBOUND_SIMULATION_COUNT + 1)
+    ]
+
+    with Database() as db:
+        failed_runs = db.fetch_all(
+            """
+            SELECT correlation_id
+            FROM simulation_runs
+            WHERE flow = 'inbound'
+              AND status = 'FAILED'
+              AND correlation_id = ANY(%s)
+            """,
+            (correlation_ids,),
+        )
+        failed_correlation_ids = [
+            str(row["correlation_id"]) for row in failed_runs
+        ]
+        if not failed_correlation_ids:
+            print("No failed inbound simulations to clean up.")
+            return
+
+        deleted_events = db.fetch_all(
+            """
+            DELETE FROM event_outbox
+            WHERE correlation_id = ANY(%s)
+              AND status IN ('PENDING', 'RETRY_SCHEDULED')
+            RETURNING event_id
+            """,
+            (failed_correlation_ids,),
+        )
+
+    print(
+        f"Removed {len(deleted_events)} unpublished outbox events "
+        f"for {len(failed_correlation_ids)} failed inbound simulations."
+    )
+
+
 with DAG(
-     dag_id="simulation_inbound",
-     start_date=pendulum.datetime(2021, 1, 1, tz="Asia/Kolkata"),
-     schedule="*/10 0,4,8,12,16,20 * * *",
-     max_active_runs=1,
-     catchup=False
+        dag_id="simulation_inbound",
+        start_date=pendulum.datetime(2021, 1, 1, tz="Asia/Kolkata"),
+        schedule="*/10 0,4,8,12,16,20 * * *",
+        max_active_runs=1,
+        catchup=False
 ) as dag:
     t1 = PythonOperator(
         task_id="check_api_status",
@@ -116,4 +167,10 @@ with DAG(
         python_callable=inbound_simulation
     )
 
-    t1 >> t2 >> t3
+    t4 = PythonOperator(
+        task_id="clean_invalid_records",
+        python_callable=removing_invalid_inbound_cycles,
+        trigger_rule="all_done",
+    )
+
+    t1 >> t2 >> t3 >> t4
