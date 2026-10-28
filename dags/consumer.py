@@ -274,6 +274,10 @@ def main_consumer():
                             "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.26",
                         )
                         .config(
+                            "spark.jars.ivy",
+                            "/opt/airflow/logs/.ivy2",
+                        )
+                        .config(
                             "spark.hadoop.fs.gs.impl",
                             "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
                         )
@@ -287,6 +291,7 @@ def main_consumer():
                         )
                         .getOrCreate()
                     )
+                    spark.sparkContext.setLogLevel("ERROR")
 
                 upload_result_of_parsed = place_it_in_GCS_parse(
                     result,

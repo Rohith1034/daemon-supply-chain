@@ -379,7 +379,7 @@ picking_task_started = StructType([
     _field("pickingTask", StructType([
         _field("taskId", StringType()),
         _field("warehouseId", StringType()),
-        _field("workerId", StringType()),
+        _field("workerId", StringType(), nullable=True),
         _field("status", StringType()),
     ])),
     _field("correlationId", StringType(), nullable=True),
@@ -420,7 +420,7 @@ packing_task_started = StructType([
     _field("packingTask", StructType([
         _field("taskId", StringType()),
         _field("warehouseId", StringType()),
-        _field("workerId", StringType()),
+        _field("workerId", StringType(), nullable=True),
         _field("status", StringType()),
     ])),
     _field("correlationId", StringType(), nullable=True),
