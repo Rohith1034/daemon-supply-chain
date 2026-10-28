@@ -126,7 +126,7 @@ def removing_invalid_inbound_cycles(**context):
                 FROM simulation_runs
                 WHERE flow = 'inbound'
                   AND status = 'FAILED'
-                  AND correlation_id = ANY(%s)
+                  AND correlation_id::text = ANY(%s)
                 """,
                 (correlation_ids,),
             )
