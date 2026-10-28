@@ -4,7 +4,6 @@ from uuid import NAMESPACE_URL, uuid5
 import psycopg2
 import pendulum
 import requests
-from core.db import Database
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.sdk import DAG
 from airflow.sdk.exceptions import AirflowFailException
@@ -111,33 +110,46 @@ def removing_invalid_inbound_cycles(**context):
         for call_number in range(1, INBOUND_SIMULATION_COUNT + 1)
     ]
 
-    with Database() as db:
-        failed_runs = db.fetch_all(
-            """
-            SELECT correlation_id
-            FROM simulation_runs
-            WHERE flow = 'inbound'
-              AND status = 'FAILED'
-              AND correlation_id = ANY(%s)
-            """,
-            (correlation_ids,),
-        )
-        failed_correlation_ids = [
-            str(row["correlation_id"]) for row in failed_runs
-        ]
-        if not failed_correlation_ids:
-            print("No failed inbound simulations to clean up.")
-            return
+    connection = psycopg2.connect(
+        host=os.getenv("DB_HOST", "host.docker.internal"),
+        port=int(os.getenv("DB_PORT", "5432")),
+        dbname=os.getenv("DB_NAME", "supply_chain"),
+        user=os.getenv("DB_USER", "supplychain_app"),
+        password=os.getenv("DB_PASSWORD"),
+        connect_timeout=5,
+    )
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT correlation_id
+                FROM simulation_runs
+                WHERE flow = 'inbound'
+                  AND status = 'FAILED'
+                  AND correlation_id = ANY(%s)
+                """,
+                (correlation_ids,),
+            )
+            failed_correlation_ids = [
+                str(row[0]) for row in cursor.fetchall()
+            ]
+            if not failed_correlation_ids:
+                print("No failed inbound simulations to clean up.")
+                return
 
-        deleted_events = db.fetch_all(
-            """
-            DELETE FROM event_outbox
-            WHERE correlation_id = ANY(%s)
-              AND status IN ('PENDING', 'RETRY_SCHEDULED')
-            RETURNING event_id
-            """,
-            (failed_correlation_ids,),
-        )
+            cursor.execute(
+                """
+                DELETE FROM event_outbox
+                WHERE correlation_id = ANY(%s)
+                  AND status IN ('PENDING', 'RETRY_SCHEDULED')
+                RETURNING event_id
+                """,
+                (failed_correlation_ids,),
+            )
+            deleted_events = cursor.fetchall()
+        connection.commit()
+    finally:
+        connection.close()
 
     print(
         f"Removed {len(deleted_events)} unpublished outbox events "
