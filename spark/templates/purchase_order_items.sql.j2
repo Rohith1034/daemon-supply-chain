@@ -1,0 +1,45 @@
+SELECT
+
+  -- Purchase Order Identifier
+  purchaseOrder.poId
+    AS po_id,
+
+  -- Item Details
+  item.productId
+    AS product_id,
+  item.productName
+    AS product_name,
+  item.quantity
+    AS quantity,
+  item.unitCost
+    AS unit_cost,
+  item.totalCost
+    AS total_cost,
+
+  -- Supplier Information
+  purchaseOrder.supplierId
+    AS supplier_id,
+  purchaseOrder.supplierName
+    AS supplier_name,
+
+  -- Warehouse Information
+  purchaseOrder.warehouseId
+    AS warehouse_id,
+  purchaseOrder.warehouseName
+    AS warehouse_name,
+
+  -- Event Information
+  eventType
+    AS event_type,
+  occurredAt
+    AS occurred_at,
+  correlation_id,
+  CURRENT_TIMESTAMP
+    AS silver_load_timestamp
+FROM
+  source_dataframe
+    LATERAL VIEW EXPLODE(purchaseOrder.items) exploded_items AS item
+WHERE
+  eventType IN (
+    'PurchaseOrderCreated',
+    'PurchaseOrderApproved')

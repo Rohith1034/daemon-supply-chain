@@ -1,0 +1,124 @@
+job:
+  name: "PURCHASE_ORDER_ITEMS"
+  description: "Silver ingestion pipeline for Purchase Order line items"
+  pipeline_type: "SILVER"
+  business_domain: "INBOUND"
+  owner: "Data Engineering"
+  version: "1.0"
+  enabled: true
+
+
+source:
+  bucket_name: "daemon-supply-bronze"
+
+  base_path: "parsed/purchase-order-events"
+
+  topic_name: "purchase-order-events"
+
+
+  event_types:
+    - "PurchaseOrderCreated"
+    - "PurchaseOrderApproved"
+
+
+  file_format: "parquet"
+
+  recursive_read: true
+
+
+target:
+  bucket_name: "daemon-supply-silver"
+
+  folder_name: "purchase_order_items"
+
+  table_name: "purchase_order_items"
+
+  file_format: "parquet"
+
+
+  partition_columns:
+    - "year"
+    - "month"
+
+
+
+processing:
+  write_mode: "MERGE"
+
+
+  primary_keys:
+    - "po_id"
+    - "product_id"
+
+
+  incremental_loading: true
+
+
+  checkpoint_enabled: true
+
+
+  deduplicate: true
+
+
+  merge_strategy: "UPSERT"
+
+
+
+template:
+
+  template_name: "purchase_order_items.sql.j2"
+
+  template_folder: "../templates"
+
+
+
+validation:
+
+  required_columns:
+
+    - "po_id"
+
+    - "product_id"
+
+    - "quantity"
+
+    - "unit_cost"
+
+
+  not_null_columns:
+
+    - "po_id"
+
+    - "product_id"
+
+
+
+audit:
+
+  enabled: true
+
+  log_row_counts: true
+
+  log_runtime: true
+
+  capture_source_files: true
+
+
+
+checkpoint:
+
+  checkpoint_type: "KAFKA_OFFSET"
+
+  track_partition: true
+
+  track_offset: true
+
+  skip_processed_files: true
+
+
+
+output:
+
+  compression: "snappy"
+
+  save_mode: "overwrite"
