@@ -65,7 +65,6 @@ class Reader:
         spark = (SparkSession.builder
          .master("local[*]")
          .appName("DataProcessingApp")
-         .config("spark.jars.packages", "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.22")
          .getOrCreate())
 
         folder_path = f"gs://{bucket_name}/{base_path}/{event_types[0]}"
