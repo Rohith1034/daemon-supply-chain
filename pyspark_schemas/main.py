@@ -3,6 +3,7 @@ from pyspark.sql.types import (
     BooleanType,
     DoubleType,
     IntegerType,
+    LongType,
     StringType,
     StructField,
     StructType,
@@ -166,7 +167,7 @@ inventory_reserved = StructType([
         _field("warehouse_id", StringType()),
         _field("items", _array(
             _field("allocation_id", StringType()),
-            _field("inventory_id", StringType()),
+            _field("inventory_id", LongType()),
             _field("product_id", StringType()),
             _field("location_id", StringType(), nullable=True),
             _field("reserved_quantity", IntegerType()),
@@ -180,7 +181,7 @@ inventory_putaway = StructType([
     _field("event_type", StringType()),
     _field("occurred_at", TimestampType()),
     _field("inventory", StructType([
-        _field("inventory_id", StringType()),
+        _field("inventory_id", LongType()),
         _field("product_id", StringType()),
         _field("warehouse_id", StringType()),
         _field("location_id", StringType()),
@@ -198,7 +199,7 @@ stock_increased = StructType([
     _field("event_type", StringType()),
     _field("occurred_at", TimestampType()),
     _field("inventory", StructType([
-        _field("inventory_id", StringType()),
+        _field("inventory_id", LongType()),
         _field("product_id", StringType()),
         _field("warehouse_id", StringType()),
         _field("on_hand_quantity", IntegerType()),
@@ -219,7 +220,7 @@ inventory_allocation_created = StructType([
         _field("allocations", _array(
             _field("allocation_id", StringType()),
             _field("product_id", StringType()),
-            _field("inventory_id", StringType()),
+            _field("inventory_id", LongType()),
             _field("location_id", StringType(), nullable=True),
             _field("allocated_quantity", IntegerType()),
             _field("allocation_status", StringType()),
@@ -234,7 +235,7 @@ cycle_count_created = StructType([
     _field("occurredAt", TimestampType()),
     _field("cycleCountTask", StructType([
         _field("taskId", StringType()),
-        _field("inventoryId", StringType()),
+        _field("inventoryId", LongType()),
         _field("warehouseId", StringType()),
         _field("locationId", StringType()),
         _field("productId", StringType()),
@@ -293,7 +294,7 @@ goods_received = StructType([
     ])),
     _field("inventory", StructType([
         _field("items", _array(
-            _field("inventory_id", StringType()),
+            _field("inventory_id", LongType()),
             _field("product_id", StringType()),
             _field("quantity", IntegerType()),
         )),
@@ -392,10 +393,10 @@ picking_completed = StructType([
         _field("task_id", StringType()),
         _field("order_id", StringType()),
         _field("warehouse_id", StringType()),
-        _field("worker_id", StringType()),
+        _field("worker_id", StringType(), nullable=True),
         _field("product_id", StringType()),
         _field("quantity", IntegerType()),
-        _field("inventory_id", StringType()),
+        _field("inventory_id", LongType()),
         _field("status", StringType()),
     ])),
     _field("correlation_id", StringType(), nullable=True),
@@ -464,7 +465,7 @@ order_item_created = StructType([
         _field("warehouse_id", StringType()),
         _field("items", _array(
             _field("product_id", StringType()),
-            _field("inventory_id", StringType()),
+            _field("inventory_id", LongType()),
             _field("location_id", StringType(), nullable=True),
             _field("quantity", IntegerType()),
             _field("unit_price", DoubleType()),

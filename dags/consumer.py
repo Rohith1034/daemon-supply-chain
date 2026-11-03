@@ -65,6 +65,7 @@ def normalize_event_value(value, data_type, path="event"):
         BooleanType,
         DoubleType,
         IntegerType,
+        LongType,
         StringType,
         StructType,
         TimestampType,
@@ -128,7 +129,7 @@ def normalize_event_value(value, data_type, path="event"):
 
     if isinstance(data_type, StringType) and not isinstance(value, str):
         raise TypeError(f"Expected string at {path}, got {type(value).__name__}")
-    if isinstance(data_type, IntegerType) and type(value) is not int:
+    if isinstance(data_type, (IntegerType, LongType)) and type(value) is not int:
         raise TypeError(f"Expected integer at {path}, got {type(value).__name__}")
     if isinstance(data_type, DoubleType):
         if isinstance(value, bool) or not isinstance(value, (int, float)):

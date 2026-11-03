@@ -20,6 +20,55 @@ BigQuery
 ↓
 ML Models
 
+## Complete Events Flow
+
+The live simulator executes a chained, database-backed event flow rather than a fire-and-forget Kafka-only pipeline. Each domain event is created by a generator, written to the business tables in the same transaction, and published to the outbox before the scheduler picks it up for execution.
+
+```mermaid
+sequenceDiagram
+    participant G as Generator
+    participant DB as PostgreSQL
+    participant O as Outbox
+    participant Q as EventQueue
+    participant S as Scheduler
+    participant E as EventExecutor
+    participant H as EventHandler
+    participant SM as StateMachine
+    participant D as Domain Tables
+
+    G->>DB: insert business records
+    G->>O: publish_event(event_id, event_type, payload)
+    DB-->>O: same database transaction
+    Q->>O: SELECT pending / retry-scheduled events due now
+    S->>Q: dispatch_ready_events()
+    Q-->>S: due events
+    S->>E: execute(event_row, registry)
+    E->>H: resolve handler by event type
+    E->>SM: validate state transition
+    H->>D: run domain logic and mutate state
+    H-->>E: return created_events / result
+    E-->>S: success, retry, or failure
+    S->>Q: insert child future events with scheduled_time
+    Q-->>S: next cycle continues until the flow ends
+```
+
+End-to-end flow:
+
+1. A generator selects domain data from PostgreSQL (supplier, warehouse, order, inventory, or shipment records).
+2. It writes the business rows and builds the event payload.
+3. It calls `publish_event`, which inserts the row into `event_outbox` in the same transaction as the business write.
+4. The queue reads `event_outbox` rows whose `status` is `PENDING` or `RETRY_SCHEDULED` and whose scheduled time is due.
+5. The scheduler dispatches those ready events to the executor.
+6. The executor resolves the correct handler, validates the state transition, and invokes the relevant business logic.
+7. The handler may return `created_events`; the simulator converts those into future queue rows and schedules the next step.
+8. The flow continues until the event chain completes or a retry/failure occurs.
+
+Examples of chained domain flows:
+
+- Inbound flow: `PurchaseOrderCreated -> PurchaseOrderApproved -> SupplierShipmentCreated -> GoodsReceived -> InventoryUpdated`
+- Outbound flow: `OrderCreated -> OrderItemCreated -> InventoryReserved -> Picked -> Packed -> ShipmentCreated`
+
+This is the actual runtime model in the project today: a transactional outbox plus an in-process scheduler, not a standalone Kafka consumer loop. Kafka is still part of the target architecture, but the active execution path is PostgreSQL-backed event scheduling and execution.
 
 ## Services
 
