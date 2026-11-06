@@ -12,7 +12,8 @@ class Reader:
             spark = (
                 SparkSession.builder
                 .appName("daemon-supply-chain")
-                .master("spark://spark-master:7077")
+                #.master("spark://spark-master:7077")
+                .master("local[*]")
                 .config("spark.executor.cores", "1")
                 .config("spark.executor.memory", "1g")
                 .config("spark.cores.max", "3")
