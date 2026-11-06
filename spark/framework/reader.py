@@ -13,7 +13,7 @@ class Reader:
                 SparkSession.builder
                 .appName("daemon-supply-chain")
                 #.master("spark://spark-master:7077")
-                .master("local[*]")
+                .master("spark://127.0.0.1:7077")
                 .config("spark.executor.cores", "1")
                 .config("spark.executor.memory", "1g")
                 .config("spark.cores.max", "3")
