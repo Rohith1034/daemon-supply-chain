@@ -1,6 +1,7 @@
 from pyspark.sql import SparkSession
 from spark.framework.metadata import metadata
 from google.cloud import storage
+import os
 
 class Reader:
     def __init__(self, event_name):
@@ -23,7 +24,7 @@ class Reader:
                 )
                 .config(
                     "spark.jars.ivy",
-                    "/opt/airflow/logs/.ivy2",
+                     os.path.expanduser("~/.ivy2")
                 )
                 .config(
                     "spark.hadoop.fs.gs.impl",
