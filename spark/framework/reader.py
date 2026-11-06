@@ -54,7 +54,7 @@ class Reader:
         bucket_name = source_details.get("bucket_name")
         base_path = source_details.get("base_path")
         event_types = source_details.get("event_types")
-        topic_name = source_details.get("")
+        topic_name = source_details.get("topic_name")
         if bucket_name is None or bucket_name == "" or base_path is None or base_path == "" or event_types is None or event_types == []:
             return "invalid source details"
 
@@ -73,13 +73,13 @@ class Reader:
             .option("recursiveFileLookup", "true") \
             .parquet(folder_path)
 
-        # Add this at the bottom of reader.py to force an output display
+
         print(f"Total rows read: {df.count()}")
         df.show(5, truncate=False)
 
         return None
 
 
-read = Reader(event_name="purchase_order")
-read.reader()
-
+if __name__ == "__main__":
+    read = Reader(event_name="purchase_order")
+    read.reader()
