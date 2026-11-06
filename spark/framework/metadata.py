@@ -2,9 +2,17 @@ import os
 import yaml
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
-
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-CONFIG_DIR = os.path.join(BASE_DIR, "..", "configs")  # resolves to .../spark/configs
+CONFIG_DIR = os.path.normpath(os.path.join(BASE_DIR, "..", "configs"))
+TEMPLATE_DIR = os.path.normpath(os.path.join(BASE_DIR, "..", "templates"))
+
+
+def _resolve_path(path):
+    if not path:
+        return path
+    if os.path.isabs(path):
+        return path
+    return os.path.normpath(os.path.join(BASE_DIR, path))
 
 
 def metadata(*, event_name):
@@ -12,13 +20,13 @@ def metadata(*, event_name):
         return
 
     loader = MetadataLoader(CONFIG_DIR)
-    metadata = loader.load_yaml(event_name)
+    meta = loader.load_yaml(event_name)
 
-    template_name = metadata.get("template").get("template_name")
-    folder_path = metadata.get("template").get("template_folder")
+    template_name = meta.get("template").get("template_name")
+    template_folder = _resolve_path(meta.get("template").get("template_folder", TEMPLATE_DIR))
 
-    template = TemplateLoader(folder_path)
-    return [metadata, template.load_template(template_name)]
+    template = TemplateLoader(template_folder)
+    return [meta, template.load_template(template_name)]
 
 
 class MetadataLoader:
@@ -28,11 +36,8 @@ class MetadataLoader:
     def load_yaml(self, job_name):
         file_name = f"{job_name.lower()}.yaml"
         file_path = os.path.join(self.config_path, file_name)
-
         with open(file_path, "r") as file:
-            config = yaml.safe_load(file)
-
-        return config
+            return yaml.safe_load(file)
 
 
 class TemplateLoader:
@@ -46,7 +51,3 @@ class TemplateLoader:
             autoescape=False,
         )
         return env.get_template(file_name).render()
-
-
-if __name__ == "__main__":
-    metadata(event_name="purchase_order")
