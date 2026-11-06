@@ -39,7 +39,6 @@ class Reader:
                 )
                 .getOrCreate()
             )
-            spark.sparkContext.setLogLevel("ERROR")
         return spark
 
     def reader(self):
@@ -62,10 +61,7 @@ class Reader:
         if storage_client.bucket(bucket_name).exists():
             "No such bucket exists"
 
-        spark = (SparkSession.builder
-         .master("local[*]")
-         .appName("DataProcessingApp")
-         .getOrCreate())
+        spark = self.create_spark_session()
 
         folder_path = f"gs://{bucket_name}/{base_path}/{event_types[0]}"
 
