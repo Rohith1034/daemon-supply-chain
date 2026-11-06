@@ -1,5 +1,5 @@
 from airflow.providers.standard.sensors.external_task import ExternalTaskSensor
-from confluent_kafka import Consumer,KafkaError
+from confluent_kafka import Consumer, KafkaError
 from google.cloud import storage
 import os
 import json
@@ -17,25 +17,27 @@ conf = {
     "sasl.password": os.getenv("KAFKA_SASL_PASSWORD", ""),
     "client.id": os.getenv("KAFKA_CLIENT_ID", "daemon-supply-chain-consumer"),
     "group.id": os.getenv("KAFKA_GROUP_ID", "daemon-supply-chain-consumer"),
-    'auto.offset.reset': 'earliest',
-    'enable.auto.commit': False,
-    'enable.partition.eof': True,
-    'max.poll.interval.ms': 900000,
+    "auto.offset.reset": "earliest",
+    "enable.auto.commit": False,
+    "enable.partition.eof": True,
+    "max.poll.interval.ms": 900000,
 }
 
 topics = [
-    'inventory-events',
-    'order-events',
-    'purchase-order-events',
-    'shipment-events',
-    'supplier-shipment-events',
-    'warehouse-task-events'
+    "inventory-events",
+    "order-events",
+    "purchase-order-events",
+    "shipment-events",
+    "supplier-shipment-events",
+    "warehouse-task-events",
 ]
+
 
 def bytes_to_string_encoder(obj):
     if isinstance(obj, bytes):
-        return obj.decode('utf-8')
-    raise TypeError(f'Object of type {obj.__class__.__name__} is not JSON serialize')
+        return obj.decode("utf-8")
+    raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
+
 
 def flatten_structs(df):
     from pyspark.sql.functions import col
@@ -43,17 +45,14 @@ def flatten_structs(df):
 
     while True:
         nested = next(
-            (field for field in df.schema.fields
-             if isinstance(field.dataType, StructType)),
+            (field for field in df.schema.fields if isinstance(field.dataType, StructType)),
             None,
         )
         if nested is None:
             return df
 
         child_columns = [
-            col(f"`{nested.name}`.`{child.name}`").alias(
-                f"{nested.name}_{child.name}"
-            )
+            col(f"`{nested.name}`.`{child.name}`").alias(f"{nested.name}_{child.name}")
             for child in nested.dataType.fields
         ]
         df = df.select("*", *child_columns).drop(nested.name)
@@ -122,9 +121,7 @@ def normalize_event_value(value, data_type, path="event"):
             item_path = f"{path}[{index}]"
             if item is None and not data_type.containsNull:
                 raise ValueError(f"Null array element at {item_path}")
-            normalized.append(
-                normalize_event_value(item, data_type.elementType, item_path)
-            )
+            normalized.append(normalize_event_value(item, data_type.elementType, item_path))
         return normalized
 
     if isinstance(data_type, StringType) and not isinstance(value, str):
@@ -143,7 +140,7 @@ def normalize_event_value(value, data_type, path="event"):
 
 def place_it_in_GCS_parse(msg, bucket, spark):
     if msg is None or msg == {}:
-        return
+        return None
 
     from pyspark_schemas.main import get_spark_schema
 
@@ -174,23 +171,22 @@ def place_it_in_GCS_parse(msg, bucket, spark):
     return f"Saved Parquet data to {gcs_path}"
 
 
-
-
 def place_it_in_GCS(msg, bucket):
     if msg is None or msg == {}:
-        return
+        return None
 
     data = msg["value"]
     year_long = datetime.today().strftime("%Y")
     current_month = datetime.now().month
     current_day = datetime.now().day
     json_value = json.loads(data)
-    # print(json_value)
-    if 'event_type' not in json_value and json_value['eventType'] is not None and json_value['eventType'] != '':
-        json_value['event_type'] = json_value['eventType']
-    if 'event_type' not in json_value:
+
+    if "event_type" not in json_value and json_value.get("eventType") not in (None, ""):
+        json_value["event_type"] = json_value["eventType"]
+    if "event_type" not in json_value:
         print("event_type not found in the message value")
-        return
+        return None
+
     base_url = (
         f"raw/{msg['topic']}/"
         f"{json_value['event_type']}/"
@@ -200,13 +196,10 @@ def place_it_in_GCS(msg, bucket):
         f"partition={msg['partition']}/"
         f"{msg['offset']}.json"
     )
-    print(base_url)
+
     blob = bucket.blob(base_url)
     json_string = json.dumps(msg, default=bytes_to_string_encoder, indent=4)
-    blob.upload_from_string(
-        data=json_string,
-        content_type='application/json'
-    )
+    blob.upload_from_string(data=json_string, content_type="application/json")
 
     return f"Uploaded file in {base_url}"
 
@@ -214,115 +207,110 @@ def place_it_in_GCS(msg, bucket):
 def main_consumer():
     consumer = Consumer(conf)
     spark = None
+    processed = 0
+    max_messages = 50
+    idle_timeout_seconds = 10
+    last_message_time = time()
+
     try:
         consumer.subscribe(topics)
         bucket_name = os.getenv("GCS_BUCKET", "daemon-supply-bronze")
         bucket = storage.Client().bucket(bucket_name)
-        idle_timeout = 30
-        last_message_time = time()
-        while True:
 
+        while processed < max_messages:
             msg = consumer.poll(timeout=1.0)
 
             if msg is None:
-
-                if time() - last_message_time > idle_timeout:
-                    print("No new messages. Exiting consumer.")
+                if time() - last_message_time > idle_timeout_seconds:
+                    print("No new messages for a while. Exiting consumer.")
                     break
-
                 continue
 
             last_message_time = time()
 
             if msg.error():
-
                 if msg.error().code() == KafkaError._PARTITION_EOF:
                     continue
+                print(msg.error())
+                continue
 
-                else:
-                    print(msg.error())
-                    continue
+            result = {
+                "topic": msg.topic(),
+                "timestamp_value": str(msg.timestamp()[1]),
+                "partition": str(msg.partition()),
+                "offset": str(msg.offset()),
+                "key": msg.key().decode() if msg.key() else None,
+                "value": msg.value().decode(),
+            }
 
+            raw_result = place_it_in_GCS(result, bucket)
+            print(raw_result)
 
-            else:
+            if spark is None:
+                from pyspark.sql import SparkSession
 
-                result = {
-                    'topic': msg.topic(),
-                    'timestamp_value': str(msg.timestamp()[1]),
-                    'partition': str(msg.partition()),
-                    'offset': str(msg.offset()),
-                    'key': msg.key().decode() if msg.key() else None,
-                    'value': msg.value().decode()
-                }
-
-                upload_result = place_it_in_GCS(result, bucket)
-                print(upload_result)
-
-                if spark is None:
-                    from pyspark.sql import SparkSession
-
-                    spark = (
-                        SparkSession.builder
-                        .appName("daemon-supply-chain")
-                        .master("spark://spark-master:7077")
-                        .config("spark.executor.cores", "1")
-                        .config("spark.executor.memory", "1g")
-                        .config("spark.cores.max", "3")
-                        .config("spark.sql.shuffle.partitions", "6")
-                        .config("spark.sql.session.timeZone", "UTC")
-                        .config(
-                            "spark.jars.packages",
-                            "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.26",
-                        )
-                        .config(
-                            "spark.jars.ivy",
-                            "/opt/airflow/logs/.ivy2",
-                        )
-                        .config(
-                            "spark.hadoop.fs.gs.impl",
-                            "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
-                        )
-                        .config(
-                            "spark.hadoop.fs.AbstractFileSystem.gs.impl",
-                            "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS",
-                        )
-                        .config(
-                            "spark.hadoop.google.cloud.auth.type",
-                            "APPLICATION_DEFAULT",
-                        )
-                        .getOrCreate()
+                spark = (
+                    SparkSession.builder
+                    .appName("daemon-supply-chain")
+                    .master("spark://spark-master:7077")
+                    .config("spark.executor.cores", "1")
+                    .config("spark.executor.memory", "1g")
+                    .config("spark.cores.max", "3")
+                    .config("spark.sql.shuffle.partitions", "6")
+                    .config("spark.sql.session.timeZone", "UTC")
+                    .config(
+                        "spark.jars.packages",
+                        "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.26",
                     )
-                    spark.sparkContext.setLogLevel("ERROR")
-
-                upload_result_of_parsed = place_it_in_GCS_parse(
-                    result,
-                    bucket,
-                    spark,
+                    .config("spark.jars.ivy", "/opt/airflow/logs/.ivy2")
+                    .config(
+                        "spark.hadoop.fs.gs.impl",
+                        "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
+                    )
+                    .config(
+                        "spark.hadoop.fs.AbstractFileSystem.gs.impl",
+                        "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS",
+                    )
+                    .config(
+                        "spark.hadoop.google.cloud.auth.type",
+                        "APPLICATION_DEFAULT",
+                    )
+                    .getOrCreate()
                 )
-                print(upload_result_of_parsed)
+                spark.sparkContext.setLogLevel("ERROR")
 
-                if upload_result:
-                    consumer.commit(message=msg)
+            parsed_result = place_it_in_GCS_parse(result, bucket, spark)
+            print(parsed_result)
 
+            if raw_result is not None:
+                consumer.commit(message=msg)
+                processed += 1
 
+        return {
+            "status": "success",
+            "processed_messages": processed,
+            "max_messages": max_messages,
+        }
 
     except KeyboardInterrupt:
-        pass
+        print("Consumer interrupted.")
+        return {"status": "interrupted", "processed_messages": processed}
     finally:
         consumer.close()
         if spark is not None:
             spark.stop()
 
+
 with DAG(
-     dag_id="kafka_consumer",
-     start_date=datetime(2021, 1, 1),
-     schedule=None,
-     max_active_runs=1,
-     catchup=False
+    dag_id="kafka_consumer",
+    start_date=datetime(2021, 1, 1),
+    schedule=None,
+    max_active_runs=1,
+    catchup=False,
 ) as dag:
     t1 = PythonOperator(
         task_id="consumer",
-        python_callable=main_consumer
+        python_callable=main_consumer,
     )
 
     t1
