@@ -8,39 +8,50 @@ class Reader:
         self.event_name = event_name
     def create_spark_session(self):
         spark = None
-        if spark is None:
-            spark = (
-                SparkSession.builder
-                .appName("daemon-supply-chain")
-                #.master("spark://spark-master:7077")
-                .master("spark://127.0.0.1:7077")
-                .config("spark.executor.cores", "1")
-                .config("spark.executor.memory", "1g")
-                .config("spark.cores.max", "3")
-                .config("spark.sql.shuffle.partitions", "6")
-                .config("spark.sql.session.timeZone", "UTC")
-                .config(
-                    "spark.jars.packages",
-                    "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.26",
-                )
-                .config(
-                    "spark.jars.ivy",
-                     os.path.expanduser("~/.ivy2")
-                )
-                .config(
-                    "spark.hadoop.fs.gs.impl",
-                    "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
-                )
-                .config(
-                    "spark.hadoop.fs.AbstractFileSystem.gs.impl",
-                    "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS",
-                )
-                .config(
-                    "spark.hadoop.google.cloud.auth.type",
-                    "APPLICATION_DEFAULT",
-                )
-                .getOrCreate()
-            )
+        # if spark is None:
+        #     spark = (
+        #         SparkSession.builder
+        #         .appName("daemon-supply-chain")
+        #         .master("spark://spark-master:7077")
+        #         # .master("spark://127.0.0.1:7077")
+        #         .config("spark.executor.cores", "1")
+        #         .config("spark.executor.memory", "1g")
+        #         .config("spark.cores.max", "3")
+        #         .config("spark.sql.shuffle.partitions", "6")
+        #         .config("spark.sql.session.timeZone", "UTC")
+        #         .config(
+        #             "spark.jars.packages",
+        #             "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.26",
+        #         )
+        #         .config(
+        #             "spark.jars.ivy",
+        #              os.path.expanduser("~/.ivy2")
+        #         )
+        #         .config(
+        #             "spark.hadoop.fs.gs.impl",
+        #             "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
+        #         )
+        #         .config(
+        #             "spark.hadoop.fs.AbstractFileSystem.gs.impl",
+        #             "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS",
+        #         )
+        #         .config(
+        #             "spark.hadoop.google.cloud.auth.type",
+        #             "APPLICATION_DEFAULT",
+        #         )
+        #         .getOrCreate()
+        #     )
+        spark = (
+            SparkSession.builder
+            .master("spark://spark-master:7077")
+            .appName("DataProcessingApp")
+            .config("spark.jars.packages", "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.26")
+            .config("spark.jars.ivy", "/home/chintupraharsh/.ivy2")
+            .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
+            .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
+            .config("spark.hadoop.google.cloud.auth.type", "APPLICATION_DEFAULT")
+            .getOrCreate()
+        )
         return spark
 
     def reader(self):
