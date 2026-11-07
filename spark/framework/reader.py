@@ -41,21 +41,17 @@ class Reader:
         #         )
         #         .getOrCreate()
         #     )
-
-        return (
-        SparkSession.builder
-        .master("local[*]")
-        .appName("DataProcessingApp")
-        .config("spark.sql.shuffle.partitions", "4")
-        .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
-        .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
-        .config("spark.hadoop.google.cloud.auth.type", "APPLICATION_DEFAULT")
-        .config(
-            "spark.jars",
-            "/home/chintupraharsh/spark/spark-3.5.3-bin-hadoop3/jars/gcs-connector-hadoop3-2.2.26.jar"
+        spark = (
+            SparkSession.builder
+            .master("local[*]")
+            .appName("DataProcessingApp")
+            .config("spark.sql.shuffle.partitions", "4")
+            .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
+            .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
+            .config("spark.hadoop.google.cloud.auth.type", "APPLICATION_DEFAULT")
+            .getOrCreate()
         )
-        .getOrCreate()
-    )
+        return spark
 
     def reader(self):
         meta = metadata(event_name=self.event_name)
