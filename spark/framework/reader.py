@@ -74,7 +74,7 @@ class Reader:
             return "invalid source details"
 
         storage_client = storage.Client()
-        if storage_client.bucket(bucket_name).exists():
+        if not storage_client.bucket(bucket_name).exists():
             raise FileNotFoundError(f"Bucket not found: {bucket_name}")
 
         spark = self.create_spark_session()
