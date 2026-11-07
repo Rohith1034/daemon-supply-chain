@@ -43,7 +43,7 @@ class Reader:
         #     )
         spark = (
             SparkSession.builder
-            .master("spark://127.0.0.1:17077")
+            .master("spark://spark-master-new:7078")
             .appName("DataProcessingApp")
             .config("spark.jars.packages", "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.26")
             .config("spark.jars.ivy", "/home/chintupraharsh/.ivy2")
