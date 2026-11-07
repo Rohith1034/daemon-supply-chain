@@ -43,7 +43,7 @@ class Reader:
         #     )
         spark = (
             SparkSession.builder
-            .master("spark://spark-master:7077")
+            .master("spark://127.0.0.1:17077")
             .appName("DataProcessingApp")
             .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
             .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
