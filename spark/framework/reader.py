@@ -41,16 +41,21 @@ class Reader:
         #         )
         #         .getOrCreate()
         #     )
-        spark = (
-            SparkSession.builder
-            .master("spark://127.0.0.1:17077")
-            .appName("DataProcessingApp")
-            .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
-            .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
-            .config("spark.hadoop.google.cloud.auth.type", "APPLICATION_DEFAULT")
-            .getOrCreate()
+
+        return (
+        SparkSession.builder
+        .master("local[*]")
+        .appName("DataProcessingApp")
+        .config("spark.sql.shuffle.partitions", "4")
+        .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
+        .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
+        .config("spark.hadoop.google.cloud.auth.type", "APPLICATION_DEFAULT")
+        .config(
+            "spark.jars",
+            "/home/chintupraharsh/spark/spark-3.5.3-bin-hadoop3/jars/gcs-connector-hadoop3-2.2.26.jar"
         )
-        return spark
+        .getOrCreate()
+    )
 
     def reader(self):
         meta = metadata(event_name=self.event_name)
@@ -70,7 +75,7 @@ class Reader:
 
         storage_client = storage.Client()
         if storage_client.bucket(bucket_name).exists():
-            "No such bucket exists"
+            raise FileNotFoundError(f"Bucket not found: {bucket_name}")
 
         spark = self.create_spark_session()
 
