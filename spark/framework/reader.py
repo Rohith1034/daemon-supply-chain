@@ -13,9 +13,12 @@ class Reader:
             .master("local[*]")
             .appName("daemon-supply-chain")
             .config("spark.sql.shuffle.partitions", "4")
+            .config("spark.jars.packages", "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.26")
+            .config("spark.jars.ivy", "/tmp/.ivy2")
             .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
             .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
             .config("spark.hadoop.google.cloud.auth.type", "APPLICATION_DEFAULT")
+            .config("spark.hadoop.google.cloud.auth.service.account.json.keyfile", "/home/chintupraharsh/daemon-supply-chain-sa.json")
             .getOrCreate()
         )
 
