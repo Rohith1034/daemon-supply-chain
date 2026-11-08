@@ -6,52 +6,18 @@ import os
 class Reader:
     def __init__(self, event_name):
         self.event_name = event_name
+
     def create_spark_session(self):
-        spark = None
-        # if spark is None:
-        #     spark = (
-        #         SparkSession.builder
-        #         .appName("daemon-supply-chain")
-        #         .master("spark://spark-master:7077")
-        #         # .master("spark://127.0.0.1:7077")
-        #         .config("spark.executor.cores", "1")
-        #         .config("spark.executor.memory", "1g")
-        #         .config("spark.cores.max", "3")
-        #         .config("spark.sql.shuffle.partitions", "6")
-        #         .config("spark.sql.session.timeZone", "UTC")
-        #         .config(
-        #             "spark.jars.packages",
-        #             "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.26",
-        #         )
-        #         .config(
-        #             "spark.jars.ivy",
-        #              os.path.expanduser("~/.ivy2")
-        #         )
-        #         .config(
-        #             "spark.hadoop.fs.gs.impl",
-        #             "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
-        #         )
-        #         .config(
-        #             "spark.hadoop.fs.AbstractFileSystem.gs.impl",
-        #             "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS",
-        #         )
-        #         .config(
-        #             "spark.hadoop.google.cloud.auth.type",
-        #             "APPLICATION_DEFAULT",
-        #         )
-        #         .getOrCreate()
-        #     )
-        spark = (
+        return (
             SparkSession.builder
             .master("local[*]")
-            .appName("DataProcessingApp")
+            .appName("daemon-supply-chain")
             .config("spark.sql.shuffle.partitions", "4")
             .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
             .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
             .config("spark.hadoop.google.cloud.auth.type", "APPLICATION_DEFAULT")
             .getOrCreate()
         )
-        return spark
 
     def reader(self):
         meta = metadata(event_name=self.event_name)
@@ -74,16 +40,17 @@ class Reader:
             raise FileNotFoundError(f"Bucket not found: {bucket_name}")
 
         spark = self.create_spark_session()
+        try:
+            folder_path = f"gs://{bucket_name}/{base_path}/{event_types[0]}"
 
-        folder_path = f"gs://{bucket_name}/{base_path}/{event_types[0]}"
+            df = spark.read \
+                .option("recursiveFileLookup", "true") \
+                .parquet(folder_path)
 
-        df = spark.read \
-            .option("recursiveFileLookup", "true") \
-            .parquet(folder_path)
-
-
-        print(f"Total rows read: {df.count()}")
-        df.show(5, truncate=False)
+            print(f"Total rows read: {df.count()}")
+            df.show(5, truncate=False)
+        finally:
+            spark.stop()
 
         return None
 
