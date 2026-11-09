@@ -65,7 +65,7 @@ def create_spark(app_name="daemon-supply-chain"):
 
             # Use ADC
             .config(
-                "spark.hadoop.google.cloud.auth.type",
+                "spark.hadoop.fs.gs.auth.type",
                 "APPLICATION_DEFAULT"
             )
 
@@ -82,7 +82,7 @@ def create_spark(app_name="daemon-supply-chain"):
             .config("spark.cores.max", "3")
             .config(
                 "spark.jars.packages",
-                "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.20",
+                "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.25",
             )
             .config(
                 "spark.jars.ivy",
@@ -103,15 +103,15 @@ def create_spark(app_name="daemon-supply-chain"):
 
 # from pyspark.sql import SparkSession
 #
-# spark = (
-#     SparkSession.builder
-#     .appName("spark-test")
-#     .master("local[*]")
-#     .getOrCreate()
-# )
-#
-# print("Spark version:", spark.version)
-#
+spark = (
+    SparkSession.builder
+    .appName("spark-test")
+    .master("local[*]")
+    .getOrCreate()
+)
+
+print("Spark version:", spark.version)
+
 # spark.range(5).show()
 #
 # spark.stop()
@@ -148,3 +148,14 @@ def create_spark(app_name="daemon-supply-chain"):
 #
 # import pyspark
 # print(pyspark.__version__)
+# conf = spark.sparkContext._jsc.hadoopConfiguration()
+#
+# iterator = conf.iterator()
+#
+# while iterator.hasNext():
+#     item = iterator.next()
+#     key = item.getKey()
+#     value = item.getValue()
+#
+#     if "8m" in value.lower() or "memory" in key.lower() or "size" in key.lower():
+#         print(key, "=", value)
