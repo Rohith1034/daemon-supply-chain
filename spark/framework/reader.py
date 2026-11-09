@@ -44,28 +44,42 @@ class Reader:
             raise FileNotFoundError(f"GCS bucket not found : {bucket_name}")
 
         # -----------------------------
-        # Read all configured event types
+        # Read Parquet files in batches
         # -----------------------------
-        counter = 0
+        files_per_batch = 15
         dataframes = []
 
         for event in event_types:
-            
-            if counter > 0 and counter % 10 == 0:
-                print(f"Processed {counter} event types...")
-                df.show(5)
+            prefix = f"{base_path}/{event}/"
+            files = [
+                f"gs://{bucket_name}/{blob.name}"
+                for blob in storage_client.list_blobs(
+                    bucket_name,
+                    prefix=prefix,
+                )
+                if blob.name.endswith(".parquet")
+            ]
 
-            folder = f"gs://{bucket_name}/{base_path}/{event}"
+            if not files:
+                raise FileNotFoundError(
+                    f"No Parquet files found in gs://{bucket_name}/{prefix}"
+                )
 
-            df = (
-                self.spark.read
-                .option("recursiveFileLookup", "true")
-                .parquet(folder)
-            )
+            for start in range(0, len(files), files_per_batch):
+                batch = files[start : start + files_per_batch]
+                batch_number = start // files_per_batch + 1
+                print(
+                    f"Reading event {event}: files "
+                    f"{start + 1}-{start + len(batch)} of {len(files)} "
+                    f"(batch {batch_number})",
+                    flush=True,
+                )
 
-            dataframes.append(df)
-
-            counter += 1
+                df = self.spark.read.parquet(*batch)
+                print(f"Sample rows for event {event}, batch {batch_number}:",
+                      flush=True)
+                df.show(20, truncate=False)
+                dataframes.append(df)
 
         # -----------------------------
         # Merge all event DataFrames
