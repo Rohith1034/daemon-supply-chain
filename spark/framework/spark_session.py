@@ -1,8 +1,6 @@
 from pyspark.sql import SparkSession
 import os
 
-GCS_CONNECTOR_PACKAGE = "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.20"
-
 
 def create_spark(app_name="daemon-supply-chain"):
 
@@ -12,7 +10,6 @@ def create_spark(app_name="daemon-supply-chain"):
         .config("spark.sql.shuffle.partitions", "4")
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.ui.enabled", "false")
-        .config("spark.jars.packages", GCS_CONNECTOR_PACKAGE)
         .config(
             "spark.hadoop.fs.gs.impl",
             "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem"
