@@ -98,6 +98,9 @@ def create_spark(app_name="daemon-supply-chain"):
         "fs.AbstractFileSystem.gs.impl",
         "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS",
     )
+    hadoop_conf.set("fs.gs.block.size", "67108864")
+    hadoop_conf.set("fs.gs.inputstream.buffer.size", "8388608")
+    hadoop_conf.set("fs.gs.outputstream.buffer.size", "8388608")
 
     spark.sparkContext.setLogLevel("ERROR")
 
