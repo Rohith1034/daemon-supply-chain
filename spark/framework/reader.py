@@ -46,9 +46,14 @@ class Reader:
         # -----------------------------
         # Read all configured event types
         # -----------------------------
+        counter = 0
         dataframes = []
 
         for event in event_types:
+            
+            if counter > 0 and counter % 10 == 0:
+                print(f"Processed {counter} event types...")
+                df.show(5)
 
             folder = f"gs://{bucket_name}/{base_path}/{event}"
 
@@ -59,6 +64,8 @@ class Reader:
             )
 
             dataframes.append(df)
+
+            counter += 1
 
         # -----------------------------
         # Merge all event DataFrames
@@ -79,17 +86,17 @@ class Reader:
 
 spark = create_spark()
 
-print(
-    "fs.gs.impl =",
-    spark.sparkContext._jsc.hadoopConfiguration().get("fs.gs.impl")
-)
+# print(
+#     "fs.gs.impl =",
+#     spark.sparkContext._jsc.hadoopConfiguration().get("fs.gs.impl")
+# )
 
-print(
-    "fs.AbstractFileSystem.gs.impl =",
-    spark.sparkContext._jsc.hadoopConfiguration().get(
-        "fs.AbstractFileSystem.gs.impl"
-    )
-)
+# print(
+#     "fs.AbstractFileSystem.gs.impl =",
+#     spark.sparkContext._jsc.hadoopConfiguration().get(
+#         "fs.AbstractFileSystem.gs.impl"
+#     )
+# )
 
 reader = Reader(
     spark=spark,
@@ -99,17 +106,17 @@ reader = Reader(
 result = reader.reader()
 print(result)
 
-print(
-    "fs.gs.impl =",
-    spark.sparkContext._jsc.hadoopConfiguration().get("fs.gs.impl")
-)
+# print(
+#     "fs.gs.impl =",
+#     spark.sparkContext._jsc.hadoopConfiguration().get("fs.gs.impl")
+# )
 
-print(
-    "fs.AbstractFileSystem.gs.impl =",
-    spark.sparkContext._jsc.hadoopConfiguration().get(
-        "fs.AbstractFileSystem.gs.impl"
-    )
-)
+# print(
+#     "fs.AbstractFileSystem.gs.impl =",
+#     spark.sparkContext._jsc.hadoopConfiguration().get(
+#         "fs.AbstractFileSystem.gs.impl"
+#     )
+# )
 
 # df = result["dataframe"]
 #
