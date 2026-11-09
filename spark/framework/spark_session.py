@@ -18,6 +18,10 @@ def create_spark(app_name="daemon-supply-chain"):
             "spark.hadoop.fs.AbstractFileSystem.gs.impl",
             "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS",
         )
+        .config(
+            "spark.hadoop.fs.gs.block.size",
+            "67108864"
+        )
     )
 
     # Local development
@@ -26,14 +30,45 @@ def create_spark(app_name="daemon-supply-chain"):
         builder = (
             builder
             .master("local[*]")
+            .appName(app_name)
+
+            .config(
+                "spark.sql.shuffle.partitions",
+                "4"
+            )
+
+            .config(
+                "spark.sql.session.timeZone",
+                "UTC"
+            )
+
+            .config(
+                "spark.ui.enabled",
+                "false"
+            )
+
+            # GCS Connector
+            .config(
+                "spark.jars.packages",
+                "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.20"
+            )
+
+            .config(
+                "spark.hadoop.fs.gs.impl",
+                "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem"
+            )
+
+            .config(
+                "spark.hadoop.fs.AbstractFileSystem.gs.impl",
+                "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS"
+            )
+
+            # Use ADC
             .config(
                 "spark.hadoop.google.cloud.auth.type",
-                "SERVICE_ACCOUNT_FILE",
+                "APPLICATION_DEFAULT"
             )
-            .config(
-                "spark.hadoop.google.cloud.auth.service.account.json.keyfile",
-                os.path.expanduser("~/daemon-supply-chain-sa.json"),
-            )
+
         )
 
     # VM / Docker / Airflow
@@ -47,16 +82,17 @@ def create_spark(app_name="daemon-supply-chain"):
             .config("spark.cores.max", "3")
             .config(
                 "spark.jars.packages",
-                "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.26",
+                "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.20",
             )
             .config(
                 "spark.jars.ivy",
                 "/opt/airflow/logs/.ivy2",
             )
             .config(
-                "spark.hadoop.google.cloud.auth.type",
-                "APPLICATION_DEFAULT",
+                "spark.hadoop.google.cloud.auth.service.account.json.keyfile",
+                os.path.expanduser("~/daemon-supply-chain-sa.json"),
             )
+
         )
 
     spark = builder.getOrCreate()
@@ -64,3 +100,51 @@ def create_spark(app_name="daemon-supply-chain"):
     spark.sparkContext.setLogLevel("ERROR")
 
     return spark
+
+# from pyspark.sql import SparkSession
+#
+# spark = (
+#     SparkSession.builder
+#     .appName("spark-test")
+#     .master("local[*]")
+#     .getOrCreate()
+# )
+#
+# print("Spark version:", spark.version)
+#
+# spark.range(5).show()
+#
+# spark.stop()
+
+# spark = create_spark()
+#
+# print("Spark:", spark.version)
+#
+# print("\nSpark Conf")
+# for k, v in sorted(spark.sparkContext.getConf().getAll()):
+#     if "64" in str(v).lower() or "m" in str(v).lower():
+#         print(k, "=", v)
+#
+# print("\nHadoop Conf")
+# hc = spark.sparkContext._jsc.hadoopConfiguration()
+#
+# it = hc.iterator()
+#
+# while it.hasNext():
+#     e = it.next()
+#
+#     if "64m" in str(e.getValue()).lower():
+#         print(e.getKey(), "=", e.getValue())
+# conf = spark.sparkContext._jsc.hadoopConfiguration()
+#
+# print("GCS block size:")
+# print(conf.get("fs.gs.block.size"))
+#
+# print("Hadoop version:")
+# print(spark.sparkContext._jvm.org.apache.hadoop.util.VersionInfo.getVersion())
+
+# import os
+# print(os.environ.get("JAVA_HOME"))
+#
+# import pyspark
+# print(pyspark.__version__)
