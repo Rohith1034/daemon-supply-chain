@@ -15,10 +15,6 @@ def create_spark(app_name="daemon-supply-chain"):
             "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem"
         )
         .config(
-            "spark.hadoop.fs.AbstractFileSystem.gs.impl",
-            "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS",
-        )
-        .config(
             "spark.hadoop.fs.gs.block.size",
             "67108864"
         )
@@ -29,10 +25,6 @@ def create_spark(app_name="daemon-supply-chain"):
         .config(
             "spark.hadoop.fs.gs.outputstream.buffer.size",
             "8388608"
-        )
-        .config(
-            "spark.hadoop.fs.AbstractFileSystem.gs.impl",
-            "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS"
         )
     )
 
@@ -58,11 +50,6 @@ def create_spark(app_name="daemon-supply-chain"):
                 "spark.ui.enabled",
                 "false"
             )
-            .config(
-                "spark.hadoop.fs.AbstractFileSystem.gs.impl",
-                "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS"
-            )
-
             # GCS Connector
             .config(
                 "spark.jars.packages",
@@ -110,23 +97,21 @@ def create_spark(app_name="daemon-supply-chain"):
             )
 
         )
-
     spark = builder.getOrCreate()
+
+    hadoop_conf = spark.sparkContext._jsc.hadoopConfiguration()
+    hadoop_conf.set(
+        "fs.gs.impl",
+        "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
+    )
+    hadoop_conf.set(
+        "fs.AbstractFileSystem.gs.impl",
+        "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS",
+    )
 
     spark.sparkContext.setLogLevel("ERROR")
 
     return spark
-
-# from pyspark.sql import SparkSession
-#
-spark = (
-    SparkSession.builder
-    .appName("spark-test")
-    .master("local[*]")
-    .getOrCreate()
-)
-
-print("Spark version:", spark.version)
 
 # spark.range(5).show()
 #
