@@ -12,7 +12,7 @@ def create_spark(app_name="daemon-supply-chain"):
         .config("spark.ui.enabled", "false")
         .config(
             "spark.hadoop.fs.gs.impl",
-            "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem",
+            "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem"
         )
         .config(
             "spark.hadoop.fs.AbstractFileSystem.gs.impl",
@@ -29,6 +29,10 @@ def create_spark(app_name="daemon-supply-chain"):
         .config(
             "spark.hadoop.fs.gs.outputstream.buffer.size",
             "8388608"
+        )
+        .config(
+            "spark.hadoop.fs.AbstractFileSystem.gs.impl",
+            "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS"
         )
     )
 
@@ -53,6 +57,10 @@ def create_spark(app_name="daemon-supply-chain"):
             .config(
                 "spark.ui.enabled",
                 "false"
+            )
+            .config(
+                "spark.hadoop.fs.AbstractFileSystem.gs.impl",
+                "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS"
             )
 
             # GCS Connector
