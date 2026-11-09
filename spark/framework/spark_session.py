@@ -11,6 +11,7 @@ def create_spark(app_name="daemon-supply-chain"):
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.ui.enabled", "false")
         .config("spark.hadoop.io.file.buffer.size", "8388608")
+        .config("spark.hadoop.fs.gs.inputstream.inplace.seek.limit", "8388608")
         .config(
             "spark.hadoop.fs.gs.impl",
             "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem"
@@ -102,6 +103,7 @@ def create_spark(app_name="daemon-supply-chain"):
     hadoop_conf.set("fs.gs.block.size", "67108864")
     hadoop_conf.set("fs.gs.inputstream.buffer.size", "8388608")
     hadoop_conf.set("fs.gs.outputstream.buffer.size", "8388608")
+    hadoop_conf.set("fs.gs.inputstream.inplace.seek.limit", "8388608")
     hadoop_conf.set("io.file.buffer.size", "8388608")
 
     spark.sparkContext.setLogLevel("ERROR")
