@@ -100,17 +100,6 @@ class Reader:
 
 spark = create_spark()
 
-# print(
-#     "fs.gs.impl =",
-#     spark.sparkContext._jsc.hadoopConfiguration().get("fs.gs.impl")
-# )
-
-# print(
-#     "fs.AbstractFileSystem.gs.impl =",
-#     spark.sparkContext._jsc.hadoopConfiguration().get(
-#         "fs.AbstractFileSystem.gs.impl"
-#     )
-# )
 
 reader = Reader(
     spark=spark,
@@ -118,22 +107,3 @@ reader = Reader(
 )
 
 result = reader.reader()
-print(result)
-
-# print(
-#     "fs.gs.impl =",
-#     spark.sparkContext._jsc.hadoopConfiguration().get("fs.gs.impl")
-# )
-
-# print(
-#     "fs.AbstractFileSystem.gs.impl =",
-#     spark.sparkContext._jsc.hadoopConfiguration().get(
-#         "fs.AbstractFileSystem.gs.impl"
-#     )
-# )
-
-# df = result["dataframe"]
-#
-# metadata = result["metadata"]
-#
-# sql = result["sql"]

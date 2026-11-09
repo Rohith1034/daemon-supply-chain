@@ -113,6 +113,15 @@ def main_producer():
                     ("event_type", str(row[2]).encode("utf-8")),
                     ("correlation_id", str(row[5]).encode("utf-8")),
                     ("aggregate_type", str(row[3]).encode("utf-8")),
+                    ("aggregate_id", str(row[4]).encode("utf-8")),
+                    (
+                        "created_at",
+                        (
+                            row[7].isoformat()
+                            if hasattr(row[7], "isoformat")
+                            else str(row[7])
+                        ).encode("utf-8"),
+                    ),
                 ]
 
                 if event_type in purchase_order_events:

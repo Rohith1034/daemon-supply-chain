@@ -1,0 +1,45 @@
+version: 1
+required_fields:
+  - event_id
+  - event_type
+  - created_at
+  - aggregate_id
+  - payload
+topics:
+  inventory-events:
+    event_types:
+      - GoodsReceived
+      - StockIncreased
+      - InventoryReserved
+      - InventoryAllocationCreated
+      - InventoryPutaway
+  order-events:
+    event_types:
+      - OrderCreated
+      - OrderItemCreated
+  purchase-order-events:
+    event_types:
+      - PurchaseOrderCreated
+      - PurchaseOrderApproved
+  shipment-events:
+    event_types:
+      - ShipmentReady
+      - CarrierAssigned
+      - ShipmentPickedUp
+      - ShipmentInTransit
+      - ShipmentDelivered
+  supplier-shipment-events:
+    event_types:
+      - SupplierShipmentCreated
+      - ASNReceived
+      - SupplierShipmentDelivered
+  warehouse-task-events:
+    event_types:
+      - ReceivingTaskCreated
+      - ReceivingTaskStarted
+      - PickingTaskCreated
+      - PickingTaskStarted
+      - PickingCompleted
+      - PackingTaskCreated
+      - PackingTaskStarted
+      - PackingCompleted

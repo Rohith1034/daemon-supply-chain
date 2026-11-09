@@ -68,7 +68,7 @@ Examples of chained domain flows:
 - Inbound flow: `PurchaseOrderCreated -> PurchaseOrderApproved -> SupplierShipmentCreated -> GoodsReceived -> InventoryUpdated`
 - Outbound flow: `OrderCreated -> OrderItemCreated -> InventoryReserved -> Picked -> Packed -> ShipmentCreated`
 
-This is the actual runtime model in the project today: a transactional outbox plus an in-process scheduler, not a standalone Kafka consumer loop. Kafka is still part of the target architecture, but the active execution path is PostgreSQL-backed event scheduling and execution.
+This is the actual simulator runtime model in the project today: a transactional outbox plus an in-process scheduler, not a standalone Kafka consumer loop. The outbox Kafka producer and Airflow-managed Kafka-to-Bronze consumer are implemented separately; see the [Kafka consumer documentation](./docs/KAFKA_CONSUMER.md). Spark/Silver processing remains a downstream stage.
 
 ## Services
 
