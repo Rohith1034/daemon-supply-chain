@@ -22,6 +22,14 @@ def create_spark(app_name="daemon-supply-chain"):
             "spark.hadoop.fs.gs.block.size",
             "67108864"
         )
+        .config(
+            "spark.hadoop.fs.gs.inputstream.buffer.size",
+            "8388608"
+        )
+        .config(
+            "spark.hadoop.fs.gs.outputstream.buffer.size",
+            "8388608"
+        )
     )
 
     # Local development
