@@ -3,10 +3,25 @@ import os
 
 
 def create_spark(app_name="daemon-supply-chain"):
+    environment = os.getenv("ENV", "local").lower()
+    airflow_executor = os.getenv("AIRFLOW__CORE__EXECUTOR")
+    master_url = os.getenv("SPARK_MASTER_URL")
+    gcs_connector = os.getenv(
+        "SPARK_GCS_CONNECTOR_PACKAGE",
+        "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.20",
+    )
+    credential_file = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    gcs_auth_type = os.getenv(
+        "GCS_AUTH_TYPE",
+        "SERVICE_ACCOUNT_JSON_KEYFILE"
+        if credential_file
+        else "APPLICATION_DEFAULT",
+    )
 
     builder = (
         SparkSession.builder
         .appName(app_name)
+        .config("spark.jars.packages", gcs_connector)
         .config("spark.sql.shuffle.partitions", "4")
         .config("spark.sql.session.timeZone", "UTC")
         .config("spark.ui.enabled", "false")
@@ -29,47 +44,21 @@ def create_spark(app_name="daemon-supply-chain"):
             "spark.hadoop.fs.gs.outputstream.buffer.size",
             "8388608"
         )
-    )
-
-    # Local development
-    if os.getenv("ENV", "local").lower() == "local":
-
-        builder = (
-            builder
-            .master("local[*]")
-            .appName(app_name)
-
-            .config(
-                "spark.sql.shuffle.partitions",
-                "4"
-            )
-
-            .config(
-                "spark.sql.session.timeZone",
-                "UTC"
-            )
-
-            .config(
-                "spark.ui.enabled",
-                "false"
-            )
-            .config(
-                "spark.hadoop.fs.gs.impl",
-                "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem"
-            )
-
-            .config(
-                "spark.hadoop.fs.AbstractFileSystem.gs.impl",
-                "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS"
-            )
-
-            # Use ADC
-            .config(
-                "spark.hadoop.fs.gs.auth.type",
-                "APPLICATION_DEFAULT"
-            )
-
+        .config(
+            "spark.hadoop.fs.gs.auth.type",
+            gcs_auth_type,
         )
+    )
+    if credential_file:
+        builder = builder.config(
+            "spark.hadoop.google.cloud.auth.service.account.json.keyfile",
+            credential_file,
+        )
+
+    if master_url:
+        builder = builder.master(master_url)
+    elif environment == "local" and not airflow_executor:
+        builder = builder.master("local[*]")
 
     # VM / Docker / Airflow
     else:
@@ -77,6 +66,7 @@ def create_spark(app_name="daemon-supply-chain"):
         builder = (
             builder
             .master("spark://spark-master:7077")
+            .config("spark.executor.instances", "3")
             .config("spark.executor.cores", "1")
             .config("spark.executor.memory", "1g")
             .config("spark.cores.max", "3")
@@ -84,11 +74,6 @@ def create_spark(app_name="daemon-supply-chain"):
                 "spark.jars.ivy",
                 "/opt/airflow/logs/.ivy2",
             )
-            .config(
-                "spark.hadoop.google.cloud.auth.service.account.json.keyfile",
-                os.path.expanduser("~/daemon-supply-chain-sa.json"),
-            )
-
         )
     spark = builder.getOrCreate()
 

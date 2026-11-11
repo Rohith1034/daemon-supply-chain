@@ -24,6 +24,15 @@ source:
   file_format: "parquet"
 
   recursive_read: true
+  source_path_column: "_source_gcs_path"
+
+  partition:
+    type: none
+    files_per_batch: 100
+    max_files_per_run: 500
+
+  schema:
+    infer_schema: false
 
 
 target:
@@ -37,8 +46,8 @@ target:
 
 
   partition_columns:
-    - "year"
-    - "month"
+    - "po_id"
+    - "product_id"
 
 
 
@@ -97,6 +106,8 @@ audit:
 
   enabled: true
 
+  stale_after_minutes: 30
+
   log_row_counts: true
 
   log_runtime: true
@@ -122,3 +133,10 @@ output:
   compression: "snappy"
 
   save_mode: "overwrite"
+
+  partition_by: []
+
+spark:
+  cache_dataframe: false
+
+  shuffle_partitions: 200

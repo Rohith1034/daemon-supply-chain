@@ -1,0 +1,79 @@
+job:
+  name: shipment
+  description: Shipment event ingestion
+  pipeline_type: SILVER
+  business_domain: OUTBOUND
+  version: "1.0"
+  enabled: true
+
+source:
+  bucket_name: daemon-supply-bronze
+  base_path: raw/shipment-events
+  topic_name: shipment-events
+  event_types:
+    - ShipmentCreated
+    - ShipmentDispatched
+    - ShipmentDelivered
+  file_format: json
+  recursive_read: true
+  source_path_column: _source_gcs_path
+  partition:
+    type: none
+    files_per_batch: 100
+    max_files_per_run: 500
+  schema:
+    infer_schema: true
+
+target:
+  bucket_name: daemon-supply-silver
+  folder_name: shipments
+  table_name: shipments
+  file_format: parquet
+  partition_columns: []
+
+processing:
+  source_view: source_dataframe
+  write_mode: MERGE
+  primary_keys:
+    - _source_event_id
+  incremental_loading: true
+  deduplicate: true
+  merge_strategy: UPSERT
+
+template:
+  template_name: shipment.sql.j2
+  template_folder: ../templates
+
+validation:
+  required_columns:
+    - _source_event_id
+    - _source_event_type
+    - _source_created_at
+    - _source_aggregate_id
+  not_null_columns:
+    - _source_event_id
+    - _source_event_type
+  unique_columns:
+    - _source_event_id
+  schema:
+    enabled: false
+    allow_extra_columns: true
+
+audit:
+  enabled: true
+  stale_after_minutes: 30
+  log_row_counts: true
+  capture_source_files: true
+
+checkpoint:
+  checkpoint_type: GCS_FILE
+  skip_processed_files: true
+
+spark:
+  cache_dataframe: false
+  shuffle_partitions: 200
+
+output:
+  compression: snappy
+  save_mode: append
+  partition_by: []

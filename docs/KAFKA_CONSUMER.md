@@ -106,9 +106,12 @@ all three systems:
   `event_id`, including across partitions and consumer instances.
 * A successful audit row stores the payload SHA-256, source position, status,
   GCS path, full-object checksum, retry count, and processing time.
-* A Bronze object path is deterministic by topic, event type, and event ID.
-  GCS `if_generation_match=0` prevents replacement. Existing objects are
-  verified against their checksum before they are treated as already written.
+* A Bronze object path is deterministic by topic, event type, the UTC date/hour
+  and timestamp from `created_at`, and event ID. The `ingestion_time` folder
+  therefore uses the event timestamp (rather than a fresh wall-clock time) so
+  retries resolve to the same object. GCS `if_generation_match=0` prevents
+  replacement. Existing objects are verified against their checksum before
+  they are treated as already written.
 * Bronze content does not include Kafka offset, so a replay of the same event
   produces identical bytes even when its offset differs.
 * If the process crashes after GCS upload but before the PostgreSQL commit, the

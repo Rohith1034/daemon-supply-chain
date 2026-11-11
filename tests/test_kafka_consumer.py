@@ -14,6 +14,7 @@ from kafka_consumer.message import (
     validate_event,
 )
 from kafka_consumer.retry import retry_call
+from kafka_consumer.storage import GcsObjectStore
 
 
 def _event(offset=1, payload=None):
@@ -122,6 +123,13 @@ def test_duplicate_event_payload_checksum_ignores_kafka_offset():
     assert first.bronze_bytes() == replay.bronze_bytes()
 
 
+def test_bronze_object_path_uses_stable_date_hour_and_event_id():
+    assert GcsObjectStore.raw_object_name(_event()) == (
+        "raw/purchase-order-events/PurchaseOrderCreated/2026/11/09/"
+        "hour=12/ingestion_time=20261109T120000/event_event-1.json"
+    )
+
+
 @pytest.mark.parametrize(
     "topic, value, headers, expected",
     [
@@ -142,6 +150,15 @@ def test_duplicate_event_payload_checksum_ignores_kafka_offset():
             "Unknown event type",
         ),
         ("purchase-order-events", b"{bad json", [], "Invalid JSON"),
+        (
+            "purchase-order-events",
+            b'{"eventType":"PurchaseOrderCreated","occurredAt":"not-a-time"}',
+            [
+                ("event_id", b"e1"),
+                ("aggregate_id", b"a1"),
+            ],
+            "ISO-8601",
+        ),
     ],
 )
 def test_invalid_messages_raise_validation_error(topic, value, headers, expected):

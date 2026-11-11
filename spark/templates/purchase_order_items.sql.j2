@@ -1,4 +1,5 @@
 SELECT
+  _source_gcs_path,
 
   -- Purchase Order Identifier
   purchaseOrder.poId
@@ -37,9 +38,11 @@ SELECT
   CURRENT_TIMESTAMP
     AS silver_load_timestamp
 FROM
-  source_dataframe
+  {{ processing.source_view | default("source_dataframe") }}
     LATERAL VIEW EXPLODE(purchaseOrder.items) exploded_items AS item
 WHERE
   eventType IN (
-    'PurchaseOrderCreated',
-    'PurchaseOrderApproved')
+{% for event_type in source.event_types %}
+    '{{ event_type | replace("'", "''") }}'{% if not loop.last %},{% endif %}
+{% endfor %}
+  )

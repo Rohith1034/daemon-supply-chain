@@ -1,4 +1,5 @@
 import hashlib
+from datetime import datetime, timezone
 from urllib.parse import quote
 
 from google.api_core.exceptions import Conflict, PreconditionFailed
@@ -46,7 +47,16 @@ class GcsObjectStore:
         topic = quote(event.topic, safe="")
         event_type = quote(event.event_type, safe="")
         event_id = quote(event.event_id, safe="")
-        return f"raw/{topic}/{event_type}/event_id={event_id}.json"
+        event_time = datetime.now(timezone.utc)
+        if event_time.tzinfo is None:
+            event_time = event_time.replace(tzinfo=timezone.utc)
+        event_time = event_time.astimezone(timezone.utc)
+        return (
+            f"raw/{topic}/{event_type}/{event_time:%Y/%m/%d}/"
+            f"hour={event_time:%H}/"
+            f"ingestion_time={event_time:%Y%m%dT%H%M%S%f}/"
+            f"event_{event_id}.json"
+        )
 
     @staticmethod
     def quarantine_object_name(source_key, digest):

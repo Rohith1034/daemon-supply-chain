@@ -1,0 +1,14 @@
+SELECT
+  event_id AS _source_event_id,
+  event_type AS _source_event_type,
+  created_at AS _source_created_at,
+  aggregate_id AS _source_aggregate_id,
+  {{ source.source_path_column | default("_source_gcs_path") }}
+    AS {{ source.source_path_column | default("_source_gcs_path") }},
+  payload.*
+FROM {{ processing.source_view | default("source_dataframe") }}
+WHERE event_type IN (
+{% for event_type in source.event_types %}
+  '{{ event_type | replace("'", "''") }}'{% if not loop.last %},{% endif %}
+{% endfor %}
+)

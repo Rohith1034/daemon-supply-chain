@@ -160,7 +160,7 @@ def removing_invalid_inbound_cycles(**context):
 with DAG(
         dag_id="simulation_inbound",
         start_date=pendulum.datetime(2021, 1, 1, tz="Asia/Kolkata"),
-        schedule="*/10 0,4,8,12,16,20 * * *",
+        schedule="0 */2 * * *",
         max_active_runs=1,
         catchup=False
 ) as dag:

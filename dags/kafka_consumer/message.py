@@ -1,6 +1,7 @@
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import datetime
 
 from kafka_consumer.metadata import REQUIRED_FIELDS, event_types_for_topic
 
@@ -157,6 +158,12 @@ def validate_event(topic, partition, offset, raw_value, headers=None, key=None):
     for name in REQUIRED_FIELDS:
         if normalized_fields.get(name) is None or normalized_fields.get(name) == "":
             raise MessageValidationError(f"Missing required field: {name}")
+    try:
+        datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise MessageValidationError(
+            "created_at must be a valid ISO-8601 timestamp"
+        ) from exc
 
     try:
         known_event_types = event_types_for_topic(topic)
