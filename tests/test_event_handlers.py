@@ -12,6 +12,10 @@ if str(SIMULATOR) not in sys.path:
 from core import event_timing
 from core.event_scheduler.event_executor import EventExecutor
 from core.event_scheduler.event_queue import EventQueue
+from core.selectors import (
+    _can_fit_putaway_quantities,
+    get_warehouse_with_putaway_capacity,
+)
 from event_handlers.base import build_handler
 from event_handlers.asn_received import handle as handle_asn_received
 from event_handlers.purchase_order_approved import handle as handle_purchase_order_approved
@@ -21,6 +25,67 @@ from simulator.loading_scripts import run_event_flow
 from simulator.loading_scripts.run_event_flow import build_static_event_args
 from generators.inventory.stock_increased import _get_stock_increased_time
 from generators.inventory.inventory_putaway import _select_putaway_location
+from generators.warehouse.picking_task_created import _generate_task_id
+
+
+def test_putaway_capacity_selector_packs_items_across_available_locations():
+    assert _can_fit_putaway_quantities(
+        [10, 9],
+        [9, 6, 4],
+    )
+    assert not _can_fit_putaway_quantities(
+        [10, 9],
+        [9, 7, 4],
+    )
+
+
+def test_warehouse_selection_uses_only_locations_with_enough_capacity(monkeypatch):
+    class FakeDatabase:
+        @staticmethod
+        def fetch_all(_query):
+            return [
+                {
+                    "warehouse_id": "WH-FULL",
+                    "warehouse_code": "FULL",
+                    "warehouse_name": "Full",
+                    "warehouse_type": "DISTRIBUTION",
+                    "status": "ACTIVE",
+                    "remaining_capacity": 5,
+                },
+                {
+                    "warehouse_id": "WH-AVAILABLE",
+                    "warehouse_code": "AVAILABLE",
+                    "warehouse_name": "Available",
+                    "warehouse_type": "DISTRIBUTION",
+                    "status": "ACTIVE",
+                    "remaining_capacity": 10,
+                },
+                {
+                    "warehouse_id": "WH-AVAILABLE",
+                    "warehouse_code": "AVAILABLE",
+                    "warehouse_name": "Available",
+                    "warehouse_type": "DISTRIBUTION",
+                    "status": "ACTIVE",
+                    "remaining_capacity": 9,
+                },
+            ]
+
+    monkeypatch.setattr("core.selectors.random.choice", lambda rows: rows[0])
+
+    warehouse = get_warehouse_with_putaway_capacity(
+        FakeDatabase(),
+        [9, 6, 4],
+    )
+
+    assert warehouse["warehouse_id"] == "WH-AVAILABLE"
+
+
+def test_picking_task_ids_have_collision_resistant_length():
+    task_ids = {_generate_task_id() for _ in range(1000)}
+
+    assert len(task_ids) == 1000
+    assert all(task_id.startswith("PICK-") for task_id in task_ids)
+    assert all(len(task_id) == 25 for task_id in task_ids)
 
 
 def test_receiving_start_and_goods_received_share_saved_task_id():

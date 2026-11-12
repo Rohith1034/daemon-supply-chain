@@ -14,7 +14,7 @@ from core.ids import (
 
 from core.selectors import (
     get_active_supplier,
-    get_active_warehouse,
+    get_warehouse_with_putaway_capacity,
     get_supplier_products
 )
 
@@ -84,21 +84,6 @@ def generate_purchase_order():
 
             raise Exception(
                 "No active supplier available"
-            )
-
-
-
-        # -----------------------------
-        # Warehouse
-        # -----------------------------
-
-        warehouse = get_active_warehouse(db)
-
-
-        if not warehouse:
-
-            raise Exception(
-                "No active warehouse available"
             )
 
 
@@ -235,6 +220,11 @@ def generate_purchase_order():
             raise Exception(
                 "No valid products available"
             )
+
+        warehouse = get_warehouse_with_putaway_capacity(
+            db,
+            [item["quantity"] for item in items],
+        )
 
 
 

@@ -111,6 +111,74 @@ def get_active_warehouse(db):
     )
 
 
+def _can_fit_putaway_quantities(location_capacities, required_quantities):
+    remaining_capacities = sorted(
+        (int(capacity) for capacity in location_capacities if capacity is not None),
+        reverse=True,
+    )
+    for quantity in sorted((int(value) for value in required_quantities), reverse=True):
+        matching_index = min(
+            (
+                index
+                for index, capacity in enumerate(remaining_capacities)
+                if capacity >= quantity
+            ),
+            key=remaining_capacities.__getitem__,
+            default=None,
+        )
+        if matching_index is None:
+            return False
+        remaining_capacities[matching_index] -= quantity
+        remaining_capacities.sort(reverse=True)
+    return True
+
+
+def get_warehouse_with_putaway_capacity(db, required_quantities):
+    warehouses = db.fetch_all(
+        """
+        SELECT
+            w.warehouse_id,
+            w.warehouse_code,
+            w.warehouse_name,
+            w.warehouse_type,
+            w.status,
+            wl.capacity_units - COALESCE(wl.current_utilization, 0)
+                AS remaining_capacity
+        FROM warehouses w
+        JOIN warehouse_locations wl
+            ON wl.warehouse_id = w.warehouse_id
+        WHERE w.status = 'ACTIVE'
+          AND wl.status = 'ACTIVE'
+          AND wl.capacity_units IS NOT NULL
+          AND wl.capacity_units > COALESCE(wl.current_utilization, 0)
+        ORDER BY w.warehouse_id, remaining_capacity DESC
+        """
+    )
+    capacities_by_warehouse = {}
+    warehouse_by_id = {}
+    for row in warehouses:
+        warehouse_id = row["warehouse_id"]
+        warehouse_by_id[warehouse_id] = {
+            key: row[key]
+            for key in ("warehouse_id", "warehouse_code", "warehouse_name", "warehouse_type", "status")
+        }
+        capacities_by_warehouse.setdefault(warehouse_id, []).append(
+            row["remaining_capacity"]
+        )
+
+    eligible = [
+        warehouse_by_id[warehouse_id]
+        for warehouse_id, capacities in capacities_by_warehouse.items()
+        if _can_fit_putaway_quantities(capacities, required_quantities)
+    ]
+    if not eligible:
+        raise RuntimeError(
+            "No active warehouse has putaway locations with enough free capacity "
+            f"for item quantities {list(required_quantities)}"
+        )
+    return random.choice(eligible)
+
+
 
 # ==================================
 # Customer Selection

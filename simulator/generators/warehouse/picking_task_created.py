@@ -1,5 +1,4 @@
-import random
-import string
+import uuid
 from datetime import timezone
 
 from core.db import Database
@@ -36,16 +35,7 @@ def _ensure_utc(value):
 
 
 def _generate_task_id():
-
-    suffix = ''.join(
-        random.choices(
-            string.ascii_uppercase +
-            string.digits,
-            k=6
-        )
-    )
-
-    return f"PICK-{suffix}"
+    return f"PICK-{uuid.uuid4().hex[:20].upper()}"
 
 
 
