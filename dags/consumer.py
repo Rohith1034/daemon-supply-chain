@@ -7,7 +7,7 @@ from kafka_consumer.consumer import main_consumer
 
 
 with DAG(
-    dag_id="kafka_consumer",
+    dag_id="kafka_consumers",
     start_date=datetime(2021, 1, 1),
     schedule=None,
     max_active_runs=1,
