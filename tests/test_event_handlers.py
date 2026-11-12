@@ -13,7 +13,7 @@ from core import event_timing
 from core.event_scheduler.event_executor import EventExecutor
 from core.event_scheduler.event_queue import EventQueue
 from core.selectors import (
-    _can_fit_putaway_quantities,
+    _can_fit_putaway_items,
     get_warehouse_with_putaway_capacity,
 )
 from event_handlers.base import build_handler
@@ -28,21 +28,62 @@ from generators.inventory.inventory_putaway import _select_putaway_location
 from generators.warehouse.picking_task_created import _generate_task_id
 
 
-def test_putaway_capacity_selector_packs_items_across_available_locations():
-    assert _can_fit_putaway_quantities(
-        [10, 9],
-        [9, 6, 4],
+def test_putaway_capacity_selector_accounts_for_existing_stock_relocation():
+    locations = [
+        {"location_id": "LOC-1", "remaining_capacity": 5},
+        {"location_id": "LOC-2", "remaining_capacity": 100},
+    ]
+    inventory = {
+        "PROD-1": {
+            "location_id": "LOC-1",
+            "available_quantity": 50,
+        }
+    }
+
+    assert _can_fit_putaway_items(
+        locations,
+        inventory,
+        [{"product_id": "PROD-1", "quantity": 20}],
     )
-    assert not _can_fit_putaway_quantities(
-        [10, 9],
-        [9, 7, 4],
+    assert not _can_fit_putaway_items(
+        [
+            {"location_id": "LOC-1", "remaining_capacity": 5},
+            {"location_id": "LOC-2", "remaining_capacity": 60},
+        ],
+        inventory,
+        [{"product_id": "PROD-1", "quantity": 20}],
+    )
+
+
+def test_putaway_capacity_selector_requires_existing_unlocated_stock_capacity():
+    assert _can_fit_putaway_items(
+        [{"location_id": "LOC-1", "remaining_capacity": 80}],
+        {
+            "PROD-1": {
+                "location_id": None,
+                "available_quantity": 50,
+            }
+        },
+        [{"product_id": "PROD-1", "quantity": 20}],
+    )
+    assert not _can_fit_putaway_items(
+        [{"location_id": "LOC-1", "remaining_capacity": 60}],
+        {
+            "PROD-1": {
+                "location_id": None,
+                "available_quantity": 50,
+            }
+        },
+        [{"product_id": "PROD-1", "quantity": 20}],
     )
 
 
 def test_warehouse_selection_uses_only_locations_with_enough_capacity(monkeypatch):
     class FakeDatabase:
         @staticmethod
-        def fetch_all(_query):
+        def fetch_all(_query, _params=None):
+            if "FROM inventory" in _query:
+                return []
             return [
                 {
                     "warehouse_id": "WH-FULL",
@@ -50,6 +91,7 @@ def test_warehouse_selection_uses_only_locations_with_enough_capacity(monkeypatc
                     "warehouse_name": "Full",
                     "warehouse_type": "DISTRIBUTION",
                     "status": "ACTIVE",
+                    "location_id": "LOC-FULL",
                     "remaining_capacity": 5,
                 },
                 {
@@ -58,6 +100,7 @@ def test_warehouse_selection_uses_only_locations_with_enough_capacity(monkeypatc
                     "warehouse_name": "Available",
                     "warehouse_type": "DISTRIBUTION",
                     "status": "ACTIVE",
+                    "location_id": "LOC-AVAILABLE-1",
                     "remaining_capacity": 10,
                 },
                 {
@@ -66,6 +109,7 @@ def test_warehouse_selection_uses_only_locations_with_enough_capacity(monkeypatc
                     "warehouse_name": "Available",
                     "warehouse_type": "DISTRIBUTION",
                     "status": "ACTIVE",
+                    "location_id": "LOC-AVAILABLE-2",
                     "remaining_capacity": 9,
                 },
             ]
@@ -74,7 +118,11 @@ def test_warehouse_selection_uses_only_locations_with_enough_capacity(monkeypatc
 
     warehouse = get_warehouse_with_putaway_capacity(
         FakeDatabase(),
-        [9, 6, 4],
+        [
+            {"product_id": "PROD-1", "quantity": 9},
+            {"product_id": "PROD-2", "quantity": 6},
+            {"product_id": "PROD-3", "quantity": 4},
+        ],
     )
 
     assert warehouse["warehouse_id"] == "WH-AVAILABLE"

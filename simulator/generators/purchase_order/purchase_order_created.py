@@ -223,7 +223,13 @@ def generate_purchase_order():
 
         warehouse = get_warehouse_with_putaway_capacity(
             db,
-            [item["quantity"] for item in items],
+            [
+                {
+                    "product_id": item["product"]["product_id"],
+                    "quantity": item["quantity"],
+                }
+                for item in items
+            ],
         )
 
 

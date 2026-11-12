@@ -80,7 +80,9 @@ def _find_storage_location(
         ) >= %s
 
 
-        ORDER BY current_utilization ASC
+        ORDER BY
+            (capacity_units - current_utilization) ASC,
+            current_utilization DESC
 
 
         LIMIT 1
